@@ -1,0 +1,961 @@
+<script setup lang="ts">
+import { ref, reactive, watch, onMounted, nextTick } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { useTheme } from '@/composables/useTheme';
+import { useToast } from '@/composables/useToast';
+import { open } from '@tauri-apps/plugin-dialog';
+import { availableLocales, setLocale, getLocale } from '@/i18n';
+import type { AiSettings, OcrMethod } from '@/types';
+import type { ThemeMode } from '@/composables/useTheme';
+
+const { t } = useI18n();
+const settingsStore = useSettingsStore();
+const { mode: themeMode, setMode } = useTheme();
+const toast = useToast();
+
+function setTheme(mode: ThemeMode) {
+  setMode(mode);
+  autoSave();
+}
+
+const loaded = ref(false);
+const testResult = ref('');
+const isTesting = ref(false);
+
+const activeProvider = ref<'openaiCompatible' | 'anthropic' | null>(null);
+const ocrMethod = ref<OcrMethod>('local');
+
+const openai = reactive({
+  apiKey: '',
+  baseUrl: 'https://api.openai.com/v1',
+  model: 'gpt-4o',
+  maskedKey: '',
+});
+
+const anthropic = reactive({
+  apiKey: '',
+  baseUrl: '',
+  model: 'claude-sonnet-4-20250514',
+  maskedKey: '',
+});
+
+const mineru = reactive({
+  apiKey: '',
+  apiBase: 'https://mineru.net/api',
+  maskedKey: '',
+});
+
+const embedding = reactive({
+  model: '',
+  baseUrl: '',
+  apiKey: '',
+  maskedKey: '',
+});
+
+const projectDir = ref('');
+
+onMounted(async () => {
+  await settingsStore.loadSettings();
+  loadForm();
+  await nextTick();
+  loaded.value = true;
+});
+
+function loadForm() {
+  const s = settingsStore.maskedSettings;
+  if (!s) return;
+
+  activeProvider.value = s.activeProvider ?? null;
+  ocrMethod.value = s.ocrMethod || 'local';
+
+  if (s.openaiCompatible) {
+    openai.baseUrl = s.openaiCompatible.baseUrl || 'https://api.openai.com/v1';
+    openai.model = s.openaiCompatible.model || 'gpt-4o';
+    openai.maskedKey = s.openaiCompatible.maskedApiKey || '';
+    openai.apiKey = '';
+  }
+
+  if (s.anthropic) {
+    anthropic.baseUrl = s.anthropic.baseUrl || '';
+    anthropic.model = s.anthropic.model || 'claude-sonnet-4-20250514';
+    anthropic.maskedKey = s.anthropic.maskedApiKey || '';
+    anthropic.apiKey = '';
+  }
+
+  if (s.mineru) {
+    mineru.apiBase = s.mineru.apiBase || 'https://mineru.net/api';
+    mineru.maskedKey = s.mineru.maskedApiKey || '';
+    mineru.apiKey = '';
+  }
+
+  embedding.model = s.embeddingModel || '';
+  embedding.baseUrl = s.embeddingBaseUrl || '';
+  embedding.maskedKey = s.maskedEmbeddingApiKey || '';
+  embedding.apiKey = '';
+
+  projectDir.value = s.defaultProjectDir || '';
+}
+
+function selectProvider(p: 'openaiCompatible' | 'anthropic' | null) {
+  activeProvider.value = p;
+  autoSave();
+}
+
+function buildPayload(): AiSettings {
+  const settings: AiSettings = {
+    activeProvider: activeProvider.value,
+    ocrMethod: ocrMethod.value,
+    locale: getLocale(),
+  };
+
+  if (activeProvider.value === 'openaiCompatible' || openai.maskedKey) {
+    settings.openaiCompatible = {
+      enabled: activeProvider.value === 'openaiCompatible',
+      apiKey: openai.apiKey,
+      baseUrl: openai.baseUrl || undefined,
+      model: openai.model,
+    };
+  }
+
+  if (activeProvider.value === 'anthropic' || anthropic.maskedKey) {
+    settings.anthropic = {
+      enabled: activeProvider.value === 'anthropic',
+      apiKey: anthropic.apiKey,
+      baseUrl: anthropic.baseUrl || undefined,
+      model: anthropic.model,
+    };
+  }
+
+  if (ocrMethod.value === 'mineru') {
+    settings.mineru = {
+      apiKey: mineru.apiKey,
+      apiBase: mineru.apiBase,
+    };
+  }
+
+  if (embedding.model) {
+    settings.embeddingModel = embedding.model;
+  }
+  if (embedding.baseUrl) {
+    settings.embeddingBaseUrl = embedding.baseUrl;
+  }
+  if (embedding.apiKey) {
+    settings.embeddingApiKey = embedding.apiKey;
+  }
+
+  if (projectDir.value) {
+    settings.defaultProjectDir = projectDir.value;
+  }
+
+  return settings;
+}
+
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function autoSave() {
+  if (!loaded.value) return;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try {
+      await settingsStore.saveSettings(buildPayload());
+      toast.show(t('common.saved'), 'success');
+    } catch {
+      toast.show(t('common.saveFailed'), 'error');
+    }
+  }, 600);
+}
+
+// Watch all form fields for changes
+watch(
+  () => [
+    activeProvider.value,
+    ocrMethod.value,
+    openai.apiKey, openai.baseUrl, openai.model,
+    anthropic.apiKey, anthropic.baseUrl, anthropic.model,
+    mineru.apiKey, mineru.apiBase,
+    embedding.model, embedding.baseUrl, embedding.apiKey,
+    projectDir.value,
+  ],
+  () => autoSave(),
+  { deep: false }
+);
+
+async function browseProjectDir() {
+  const dir = await open({
+    directory: true,
+    multiple: false,
+    title: t('settings.projectDirBrowse'),
+  });
+  if (dir) {
+    projectDir.value = dir;
+  }
+}
+
+async function handleTest() {
+  isTesting.value = true;
+  testResult.value = '';
+  try {
+    const ok = await settingsStore.testConnection();
+    testResult.value = ok ? t('settings.connectionSuccess') : t('settings.connectionFailed');
+  } catch {
+    testResult.value = t('settings.connectionFailed');
+  } finally {
+    isTesting.value = false;
+  }
+}
+
+interface NavItem {
+  id: string;
+  label: string;
+}
+
+const navItems: NavItem[] = [
+  { id: 'provider', label: 'settings.modelProvider' },
+  { id: 'embedding', label: 'settings.embedding' },
+  { id: 'ocr', label: 'settings.ocr' },
+  { id: 'appearance', label: 'settings.appearance' },
+  { id: 'language', label: 'settings.language' },
+  { id: 'project', label: 'settings.project' },
+  { id: 'export', label: 'settings.export' },
+  { id: 'about', label: 'settings.about' },
+];
+
+function scrollTo(id: string) {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+</script>
+
+<template>
+  <div class="settings-view">
+    <div class="settings-content">
+      <div class="settings-header">
+        <h3 class="settings-title">{{ t('settings.title') }}</h3>
+      </div>
+
+      <nav class="settings-nav">
+        <button
+          v-for="item in navItems"
+          :key="item.id"
+          class="nav-item"
+          @click="scrollTo(item.id)"
+        >
+          {{ t(item.label) }}
+        </button>
+      </nav>
+
+      <section id="provider" class="settings-section">
+        <h4 class="section-title">{{ t('settings.modelProvider') }}</h4>
+        <p class="section-desc">{{ t('settings.modelProviderDesc') }}</p>
+
+        <!-- OpenAI Compatible -->
+        <div class="provider-card" :class="{ active: activeProvider === 'openaiCompatible' }" @click="selectProvider('openaiCompatible')">
+          <div class="provider-header">
+            <div class="provider-radio">
+              <input type="radio" :checked="activeProvider === 'openaiCompatible'" @change="selectProvider('openaiCompatible')" />
+            </div>
+            <div class="provider-info">
+              <span class="provider-name">{{ t('settings.openaiCompatible') }}</span>
+              <span class="provider-hint">{{ t('settings.openaiHint') }}</span>
+            </div>
+          </div>
+          <div v-if="activeProvider === 'openaiCompatible'" class="provider-fields" @click.stop>
+            <div class="field">
+              <label>{{ t('settings.apiKey') }}</label>
+              <input
+                type="password"
+                v-model="openai.apiKey"
+                :placeholder="openai.maskedKey || 'sk-...'"
+                class="input"
+              />
+            </div>
+            <div class="field">
+              <label>{{ t('settings.baseUrl') }}</label>
+              <input
+                type="text"
+                v-model="openai.baseUrl"
+                placeholder="https://api.openai.com/v1"
+                class="input"
+              />
+              <span class="field-hint">{{ t('settings.baseUrlHint') }}</span>
+            </div>
+            <div class="field">
+              <label>{{ t('settings.model') }}</label>
+              <input
+                type="text"
+                v-model="openai.model"
+                placeholder="gpt-4o"
+                class="input"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Anthropic -->
+        <div class="provider-card" :class="{ active: activeProvider === 'anthropic' }" @click="selectProvider('anthropic')">
+          <div class="provider-header">
+            <div class="provider-radio">
+              <input type="radio" :checked="activeProvider === 'anthropic'" @change="selectProvider('anthropic')" />
+            </div>
+            <div class="provider-info">
+              <span class="provider-name">{{ t('settings.anthropic') }}</span>
+              <span class="provider-hint">{{ t('settings.anthropicHint') }}</span>
+            </div>
+          </div>
+          <div v-if="activeProvider === 'anthropic'" class="provider-fields" @click.stop>
+            <div class="field">
+              <label>{{ t('settings.apiKey') }}</label>
+              <input
+                type="password"
+                v-model="anthropic.apiKey"
+                :placeholder="anthropic.maskedKey || 'sk-ant-...'"
+                class="input"
+              />
+            </div>
+            <div class="field">
+              <label>{{ t('settings.baseUrlOptional') }}</label>
+              <input
+                type="text"
+                v-model="anthropic.baseUrl"
+                :placeholder="t('settings.defaultEndpoint')"
+                class="input"
+              />
+              <span class="field-hint">{{ t('settings.baseUrlAnthropicHint') }}</span>
+            </div>
+            <div class="field">
+              <label>{{ t('settings.model') }}</label>
+              <input
+                type="text"
+                v-model="anthropic.model"
+                placeholder="claude-sonnet-4-20250514"
+                class="input"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- No provider -->
+        <div class="provider-card" :class="{ active: activeProvider === null }" @click="selectProvider(null)">
+          <div class="provider-header">
+            <div class="provider-radio">
+              <input type="radio" :checked="activeProvider === null" @change="selectProvider(null)" />
+            </div>
+            <div class="provider-info">
+              <span class="provider-name">{{ t('settings.notUse') }}</span>
+              <span class="provider-hint">{{ t('settings.notUseHint') }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="activeProvider" class="test-section">
+          <button class="btn-secondary" :disabled="isTesting" @click="handleTest">
+            {{ isTesting ? t('settings.testing') : t('settings.testConnection') }}
+          </button>
+          <span v-if="testResult" class="test-result" :class="{ success: testResult === t('settings.connectionSuccess') }">
+            {{ testResult }}
+          </span>
+        </div>
+      </section>
+
+      <section v-if="activeProvider" id="embedding" class="settings-section">
+        <h4 class="section-title">{{ t('settings.embedding') }}</h4>
+        <p class="section-desc">{{ t('settings.embeddingDesc') }}</p>
+
+        <div class="embedding-fields">
+          <div class="field">
+            <label>{{ t('settings.embeddingApiKey') }}</label>
+            <input
+              type="password"
+              v-model="embedding.apiKey"
+              :placeholder="embedding.maskedKey || t('settings.embeddingApiKeyHint')"
+              class="input"
+            />
+          </div>
+          <div class="field">
+            <label>{{ t('settings.embeddingModel') }}</label>
+            <input
+              type="text"
+              v-model="embedding.model"
+              :placeholder="t('settings.embeddingModelHint')"
+              class="input"
+            />
+          </div>
+          <div class="field">
+            <label>{{ t('settings.embeddingBaseUrl') }}</label>
+            <input
+              type="text"
+              v-model="embedding.baseUrl"
+              placeholder="https://api.openai.com/v1"
+              class="input"
+            />
+            <span class="field-hint">{{ t('settings.embeddingBaseUrlHint') }}</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="ocr" class="settings-section">
+        <h4 class="section-title">{{ t('settings.ocr') }}</h4>
+        <p class="section-desc">{{ t('settings.ocrDesc') }}</p>
+
+        <div class="ocr-options">
+          <label class="ocr-option" :class="{ active: ocrMethod === 'local' }">
+            <input type="radio" value="local" v-model="ocrMethod" />
+            <div class="ocr-info">
+              <span class="ocr-name">{{ t('settings.localOcr') }}</span>
+              <span class="ocr-hint">{{ t('settings.localOcrHint') }}</span>
+            </div>
+          </label>
+          <label class="ocr-option" :class="{ active: ocrMethod === 'mineru' }">
+            <input type="radio" value="mineru" v-model="ocrMethod" />
+            <div class="ocr-info">
+              <span class="ocr-name">{{ t('settings.mineru') }}</span>
+              <span class="ocr-hint">{{ t('settings.mineruHint') }}</span>
+            </div>
+          </label>
+        </div>
+
+        <div v-if="ocrMethod === 'mineru'" class="mineru-fields">
+          <div class="field">
+            <label>{{ t('settings.apiKey') }}</label>
+            <input
+              type="password"
+              v-model="mineru.apiKey"
+              :placeholder="mineru.maskedKey || 'MinerU API Key'"
+              class="input"
+            />
+          </div>
+          <div class="field">
+            <label>API Base</label>
+            <input
+              type="text"
+              v-model="mineru.apiBase"
+              placeholder="https://mineru.net/api"
+              class="input"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section id="appearance" class="settings-section">
+        <h4 class="section-title">{{ t('settings.appearance') }}</h4>
+        <div class="theme-options">
+          <label class="theme-option" :class="{ active: themeMode === 'system' }">
+            <input type="radio" value="system" :checked="themeMode === 'system'" @change="setTheme('system')" />
+            <div class="theme-info">
+              <span class="theme-name">{{ t('settings.followSystem') }}</span>
+              <span class="theme-hint">{{ t('settings.followSystemHint') }}</span>
+            </div>
+          </label>
+          <label class="theme-option" :class="{ active: themeMode === 'light' }">
+            <input type="radio" value="light" :checked="themeMode === 'light'" @change="setTheme('light')" />
+            <div class="theme-info">
+              <span class="theme-name">{{ t('settings.light') }}</span>
+            </div>
+          </label>
+          <label class="theme-option" :class="{ active: themeMode === 'dark' }">
+            <input type="radio" value="dark" :checked="themeMode === 'dark'" @change="setTheme('dark')" />
+            <div class="theme-info">
+              <span class="theme-name">{{ t('settings.dark') }}</span>
+            </div>
+          </label>
+        </div>
+      </section>
+
+      <section id="language" class="settings-section">
+        <h4 class="section-title">{{ t('settings.language') }}</h4>
+        <p class="section-desc">{{ t('settings.languageHint') }}</p>
+        <div class="language-options">
+          <label
+            v-for="loc in availableLocales"
+            :key="loc.code"
+            class="lang-option"
+            :class="{ active: getLocale() === loc.code }"
+          >
+            <input
+              type="radio"
+              :value="loc.code"
+              :checked="getLocale() === loc.code"
+              @change="setLocale(loc.code); autoSave()"
+            />
+            <span class="lang-name">{{ loc.name }}</span>
+          </label>
+        </div>
+      </section>
+
+      <section id="project" class="settings-section">
+        <h4 class="section-title">{{ t('settings.project') }}</h4>
+        <p class="section-desc">{{ t('settings.projectDirHint') }}</p>
+        <div class="dir-row">
+          <button class="btn-secondary btn-sm" @click="browseProjectDir">
+            {{ t('settings.projectDirBrowse') }}
+          </button>
+          <span v-if="projectDir" class="dir-path" :title="projectDir">
+            {{ projectDir }}
+          </span>
+          <span v-else class="dir-placeholder">{{ t('settings.projectDirDefault') }}</span>
+        </div>
+      </section>
+
+      <section id="export" class="settings-section">
+        <h4 class="section-title">{{ t('settings.export') }}</h4>
+        <label class="toggle-row">
+          <span class="toggle-info">
+            <span class="toggle-label">{{ t('settings.watermark') }}</span>
+            <span class="toggle-hint">{{ t('settings.watermarkHint') }}</span>
+          </span>
+          <input
+            type="checkbox"
+            class="toggle-switch"
+            :checked="settingsStore.watermarkEnabled"
+            @change="settingsStore.setWatermarkEnabled(($event.target as HTMLInputElement).checked)"
+          />
+        </label>
+      </section>
+
+      <section id="about" class="settings-section">
+        <h4 class="section-title">{{ t('settings.about') }}</h4>
+        <p class="about-text">
+          {{ t('settings.aboutText') }}
+        </p>
+      </section>
+    </div>
+  </div>
+</template>
+
+<style lang="scss" scoped>
+.settings-view {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.settings-content {
+  max-width: 620px;
+  margin: 0 auto;
+  padding: $spacing-xl;
+}
+
+.settings-header {
+  margin-bottom: $spacing-lg;
+}
+
+.settings-title {
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.settings-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+  margin-bottom: $spacing-xl;
+  padding-bottom: $spacing-lg;
+  border-bottom: 1px solid $color-border;
+  position: sticky;
+  top: 0;
+  background: $color-bg;
+  z-index: 10;
+  padding-top: $spacing-sm;
+}
+
+.nav-item {
+  padding: $spacing-xs $spacing-md;
+  background: none;
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
+  font-size: 12px;
+  color: $color-text-secondary;
+  cursor: pointer;
+  font-family: $font-family;
+  transition: all $transition-fast;
+
+  &:hover {
+    border-color: $color-node-border;
+    color: $color-text-primary;
+    background: $color-panel;
+  }
+}
+
+.settings-section {
+  margin-bottom: $spacing-xl;
+  scroll-margin-top: 60px;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: $spacing-xs;
+  color: $color-text-primary;
+}
+
+.section-desc {
+  font-size: 12px;
+  color: $color-text-disabled;
+  margin-bottom: $spacing-lg;
+}
+
+.provider-card {
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
+  padding: $spacing-md $spacing-lg;
+  margin-bottom: $spacing-sm;
+  cursor: pointer;
+  transition: border-color $transition-fast;
+
+  &.active {
+    border-color: $color-node-border;
+  }
+}
+
+.provider-header {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+}
+
+.provider-radio {
+  flex-shrink: 0;
+
+  input[type="radio"] {
+    accent-color: $color-text-primary;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    cursor: pointer;
+  }
+}
+
+.provider-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.provider-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.provider-hint {
+  font-size: 11px;
+  color: $color-text-disabled;
+}
+
+.provider-fields {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+  margin-top: $spacing-md;
+  padding-top: $spacing-md;
+  border-top: 1px solid $color-border;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+
+  label {
+    font-size: 12px;
+    color: $color-text-secondary;
+  }
+}
+
+.field-hint {
+  font-size: 11px;
+  color: $color-text-disabled;
+}
+
+.input {
+  padding: $spacing-sm $spacing-md;
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
+  font-size: 13px;
+  font-family: $font-family;
+  color: $color-text-primary;
+  background: $color-bg;
+
+  &:focus {
+    outline: none;
+    border-color: $color-node-border;
+  }
+
+  &::placeholder {
+    color: $color-text-disabled;
+  }
+}
+
+.test-section {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  margin-top: $spacing-lg;
+}
+
+.btn-secondary {
+  padding: $spacing-sm $spacing-lg;
+  background: $color-bg;
+  color: $color-text-primary;
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: $font-family;
+
+  &:hover:not(:disabled) {
+    background: $color-panel;
+    border-color: $color-node-border;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.test-result {
+  font-size: 12px;
+  color: var(--color-error);
+
+  &.success {
+    color: var(--color-success);
+  }
+}
+
+.ocr-options {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.ocr-option {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
+  padding: $spacing-md $spacing-lg;
+  cursor: pointer;
+  transition: border-color $transition-fast;
+
+  &.active {
+    border-color: $color-node-border;
+  }
+
+  input[type="radio"] {
+    accent-color: $color-text-primary;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    margin: 0;
+    cursor: pointer;
+  }
+}
+
+.ocr-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ocr-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ocr-hint {
+  font-size: 11px;
+  color: $color-text-disabled;
+}
+
+.theme-options {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.theme-option {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
+  padding: $spacing-md $spacing-lg;
+  cursor: pointer;
+  transition: border-color $transition-fast;
+
+  &.active {
+    border-color: $color-node-border;
+  }
+
+  input[type="radio"] {
+    accent-color: $color-text-primary;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    margin: 0;
+    cursor: pointer;
+  }
+}
+
+.theme-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.theme-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.theme-hint {
+  font-size: 11px;
+  color: $color-text-disabled;
+}
+
+.language-options {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.lang-option {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
+  padding: $spacing-md $spacing-lg;
+  cursor: pointer;
+  transition: border-color $transition-fast;
+
+  &.active {
+    border-color: $color-node-border;
+  }
+
+  input[type="radio"] {
+    accent-color: $color-text-primary;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    margin: 0;
+    cursor: pointer;
+  }
+}
+
+.lang-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.mineru-fields {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+  margin-top: $spacing-md;
+  padding: $spacing-lg;
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
+}
+
+.embedding-fields {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.dir-row {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.dir-path {
+  font-size: 12px;
+  color: $color-text-secondary;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dir-placeholder {
+  font-size: 12px;
+  color: $color-text-disabled;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: $spacing-md $spacing-lg;
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
+  cursor: pointer;
+
+  &:hover {
+    background: $color-panel;
+  }
+}
+
+.toggle-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toggle-label {
+  font-size: 13px;
+  color: $color-text-primary;
+}
+
+.toggle-hint {
+  font-size: 11px;
+  color: $color-text-disabled;
+}
+
+.toggle-switch {
+  flex-shrink: 0;
+  width: 36px;
+  height: 20px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: $color-border;
+  border-radius: 10px;
+  position: relative;
+  cursor: pointer;
+  outline: none;
+  transition: background 0.2s;
+
+  &:checked {
+    background: $color-text-primary;
+  }
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: $color-bg;
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+
+  &:checked::before {
+    transform: translateX(16px);
+  }
+}
+
+.about-text {
+  color: $color-text-secondary;
+  font-size: 13px;
+}
+</style>

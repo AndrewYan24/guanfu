@@ -1,0 +1,82 @@
+@use 'variables' as *;
+
+@mixin text-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@mixin panel-base {
+  background: $color-panel;
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
+}
+
+@mixin card {
+  @include panel-base;
+  padding: $spacing-lg;
+  box-shadow: $shadow-sm;
+}
+
+@mixin input-base {
+  width: 100%;
+  padding: $spacing-sm $spacing-md;
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
+  font-family: $font-family;
+  font-size: 13px;
+  color: $color-text-primary;
+  background: $color-bg;
+  outline: none;
+  transition: border-color $transition-fast;
+
+  &:focus {
+    border-color: $color-node-border;
+  }
+
+  &::placeholder {
+    color: $color-text-disabled;
+  }
+}
+
+@mixin button-base {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-md;
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
+  font-family: $font-family;
+  font-size: 13px;
+  color: $color-text-primary;
+  background: $color-bg;
+  cursor: pointer;
+  transition: all $transition-fast;
+
+  &:hover {
+    background: $color-panel;
+    border-color: $color-node-border;
+  }
+
+  &:active {
+    background: $color-border;
+  }
+
+  &:disabled {
+    color: $color-text-disabled;
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+}
+
+@mixin button-primary {
+  @include button-base;
+  background: $color-text-primary;
+  color: $color-bg;
+  border-color: $color-text-primary;
+
+  &:hover {
+    opacity: 0.85;
+  }
+}

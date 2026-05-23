@@ -1,0 +1,155 @@
+@use 'variables' as *;
+@use 'mixins' as *;
+
+// ============================================================
+// CSS Custom Properties — Light theme (default)
+// ============================================================
+:root {
+  --color-bg: #ffffff;
+  --color-panel: #fafafa;
+
+  --color-text-primary: #1a1a1a;
+  --color-text-secondary: #555555;
+  --color-text-disabled: #999999;
+
+  --color-border: #e0e0e0;
+
+  --color-relation-supports: #2c2c2c;
+  --color-relation-opposes: #1a1a1a;
+  --color-relation-modifies: #4d4d4d;
+  --color-relation-adopts: #808080;
+  --color-relation-reinterprets: #b3b3b3;
+
+  --color-node-bg: #eaeaea;
+  --color-node-border: #333333;
+  --color-node-selected-border: #000000;
+
+  --color-error: #c0392b;
+  --color-success: #27ae60;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.1);
+
+  --selection-bg: rgba(0, 0, 0, 0.1);
+  --hover-bg: rgba(0, 0, 0, 0.03);
+
+  // Cytoscape graph
+  --cy-node-bg: #eaeaea;
+  --cy-node-border: #333333;
+  --cy-node-text: #1a1a1a;
+  --cy-node-selected: #000000;
+  --cy-node-controversial: #000000;
+  --cy-edge-text: #888888;
+  --cy-edge-text-bg: #ffffff;
+  --cy-supports: #2c2c2c;
+  --cy-opposes: #1a1a1a;
+  --cy-modifies: #4d4d4d;
+  --cy-adopts: #808080;
+  --cy-reinterprets: #b3b3b3;
+}
+
+// ============================================================
+// CSS Custom Properties — Dark theme
+// ============================================================
+[data-theme="dark"] {
+  --color-bg: #1a1a1a;
+  --color-panel: #242424;
+
+  --color-text-primary: #e0e0e0;
+  --color-text-secondary: #aaaaaa;
+  --color-text-disabled: #666666;
+
+  --color-border: #383838;
+
+  --color-relation-supports: #b0b0b0;
+  --color-relation-opposes: #cccccc;
+  --color-relation-modifies: #909090;
+  --color-relation-adopts: #707070;
+  --color-relation-reinterprets: #606060;
+
+  --color-node-bg: #2d2d2d;
+  --color-node-border: #888888;
+  --color-node-selected-border: #ffffff;
+
+  --color-error: #e74c3c;
+  --color-success: #2ecc71;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4);
+
+  --selection-bg: rgba(255, 255, 255, 0.12);
+  --hover-bg: rgba(255, 255, 255, 0.05);
+
+  // Cytoscape graph
+  --cy-node-bg: #333333;
+  --cy-node-border: #888888;
+  --cy-node-text: #e0e0e0;
+  --cy-node-selected: #ffffff;
+  --cy-node-controversial: #ffffff;
+  --cy-edge-text: #aaaaaa;
+  --cy-edge-text-bg: #1a1a1a;
+  --cy-supports: #b0b0b0;
+  --cy-opposes: #cccccc;
+  --cy-modifies: #909090;
+  --cy-adopts: #707070;
+  --cy-reinterprets: #606060;
+}
+
+// ============================================================
+// Global styles
+// ============================================================
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  font-family: $font-family;
+  font-size: 13px;
+  line-height: 1.5;
+  color: $color-text-primary;
+  background: $color-bg;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  scrollbar-width: none;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+#app {
+  height: 100%;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: $font-family;
+}
+
+input,
+textarea,
+select {
+  font-family: $font-family;
+  background: $color-bg;
+  color: $color-text-primary;
+
+  &::placeholder {
+    color: $color-text-disabled;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+::selection {
+  background: var(--selection-bg);
+}

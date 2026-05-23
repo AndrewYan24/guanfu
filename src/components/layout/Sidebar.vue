@@ -149,8 +149,8 @@ async function handleOpenProject() {
       >
         <span class="nav-icon">
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path d="M15.2 7.84l-1.54-.26a5.8 5.8 0 00-.6-1.44l.88-1.28-1.42-1.42-1.28.88a5.8 5.8 0 00-1.44-.6L9.54 2.8H8.46l-.26 1.54a5.8 5.8 0 00-1.44.6l-1.28-.88L4.06 5.48l.88 1.28a5.8 5.8 0 00-.6 1.44L2.8 8.46v1.08l1.54.26a5.8 5.8 0 00.6 1.44l-.88 1.28 1.42 1.42 1.28-.88a5.8 5.8 0 001.44.6l.26 1.54h1.08l.26-1.54a5.8 5.8 0 001.44-.6l1.28.88 1.42-1.42-.88-1.28a5.8 5.8 0 00.6-1.44l1.54-.26V7.84z" stroke="currentColor" stroke-width="1.2" fill="none"/>
             <circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.2" fill="none"/>
-            <path d="M9 1.5v2M9 14.5v2M1.5 9h2M14.5 9h2M3.54 3.54l1.42 1.42M13.04 13.04l1.42 1.42M3.54 14.46l1.42-1.42M13.04 4.96l1.42-1.42" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
           </svg>
         </span>
         <span v-if="expanded" class="nav-label">{{ t('sidebar.settings') }}</span>

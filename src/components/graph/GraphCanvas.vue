@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, shallowRef, computed } from 'vue';
 import cytoscape, { Core, NodeSingular, EdgeSingular, ElementDefinition } from 'cytoscape';
+import { useI18n } from 'vue-i18n';
 import { papersToElements, getCytoscapeStyles } from '@/utils/graphTransform';
 import { usePaperStore } from '@/stores/paperStore';
 import { useGraphStore } from '@/stores/graphStore';
+import { useProjectStore } from '@/stores/projectStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 const emit = defineEmits<{
@@ -13,7 +15,9 @@ const emit = defineEmits<{
 
 const paperStore = usePaperStore();
 const graphStore = useGraphStore();
+const projectStore = useProjectStore();
 const settingsStore = useSettingsStore();
+const { locale } = useI18n();
 
 const containerRef = ref<HTMLDivElement>();
 const cy = shallowRef<Core>();
@@ -384,7 +388,9 @@ function exportPng() {
 function downloadImage(dataUrl: string) {
   const link = document.createElement('a');
   link.href = dataUrl;
-  link.download = 'graph.png';
+  const appName = locale.value === 'zh-TW' ? '觀復' : 'Guanfu';
+  const projectName = projectStore.currentProject?.name || 'graph';
+  link.download = `${appName}-${projectName}.png`;
   link.click();
 }
 

@@ -17,6 +17,7 @@ pub fn run() {
             commands::save_project,
             commands::get_recent_project,
             commands::set_recent_project,
+            commands::get_default_project_dir,
             commands::import_pdfs,
             commands::update_paper,
             commands::delete_paper,

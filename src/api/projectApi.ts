@@ -20,3 +20,7 @@ export function getRecentProject() {
 export function setRecentProject(projectPath: string) {
   return safeInvoke<void>('set_recent_project', { projectPath });
 }
+
+export function getDefaultProjectDir() {
+  return safeInvoke<string>('get_default_project_dir');
+}

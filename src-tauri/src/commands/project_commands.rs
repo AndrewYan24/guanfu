@@ -26,3 +26,10 @@ pub async fn get_recent_project() -> AppResult<Option<String>> {
 pub async fn set_recent_project(project_path: String) -> AppResult<()> {
     project_service::set_recent_project(&project_path)
 }
+
+#[tauri::command]
+pub async fn get_default_project_dir() -> AppResult<String> {
+    let dir = dirs_next::document_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    Ok(dir.to_string_lossy().to_string())
+}

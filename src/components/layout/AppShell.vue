@@ -8,6 +8,7 @@ import { useProjectStore } from '@/stores/projectStore';
 import { usePaperStore } from '@/stores/paperStore';
 import { useGraphStore } from '@/stores/graphStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import * as projectApi from '@/api/projectApi';
 
 const { t } = useI18n();
 const projectStore = useProjectStore();
@@ -21,12 +22,20 @@ const newProjectName = ref('');
 const selectedDir = ref('');
 const isCreating = ref(false);
 
-watch(() => projectStore.showCreateDialog, (show) => {
+watch(() => projectStore.showCreateDialog, async (show) => {
   if (show) {
     newProjectName.value = '';
     isCreating.value = false;
-    const defaultDir = settingsStore.maskedSettings?.defaultProjectDir;
-    selectedDir.value = defaultDir || '';
+    const customDir = settingsStore.maskedSettings?.defaultProjectDir;
+    if (customDir) {
+      selectedDir.value = customDir;
+    } else {
+      try {
+        selectedDir.value = await projectApi.getDefaultProjectDir();
+      } catch {
+        selectedDir.value = '';
+      }
+    }
   }
 });
 

@@ -24,10 +24,12 @@ pub async fn ai_parse_pdf(
 
     let settings = state.ai_settings.lock().unwrap().clone();
 
-    // Step 1: Extract text from PDF
+    // Step 1: Extract text from PDF (with automatic OCR fallback for scanned PDFs)
     let text = match settings.ocr_method {
         crate::models::OcrMethod::Local => {
-            pdf_text_extractor::extract_text(&pdf_path).unwrap_or_default()
+            pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
+                .await
+                .unwrap_or_default()
         }
         crate::models::OcrMethod::Mineru => {
             if let Some(ref mineru) = settings.mineru {
@@ -39,7 +41,9 @@ pub async fn ai_parse_pdf(
                 .await
                 .unwrap_or_default()
             } else {
-                pdf_text_extractor::extract_text(&pdf_path).unwrap_or_default()
+                pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
+                    .await
+                    .unwrap_or_default()
             }
         }
     };

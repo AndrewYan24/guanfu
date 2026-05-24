@@ -36,6 +36,9 @@ const hasChanges = ref(false);
 const isParsing = ref(false);
 const parseStatus = ref('');
 
+const isAutoParsing = computed(() => paperStore.isPaperParsing(props.paper.id));
+const isQueued = computed(() => paperStore.isPaperQueued(props.paper.id));
+
 function loadForm() {
   const meta = props.paper.metadata as unknown as Record<string, string> | undefined;
   formData.value = {};
@@ -46,6 +49,13 @@ function loadForm() {
 }
 
 watch(() => props.paper.id, loadForm, { immediate: true });
+
+// Auto-reload form when metadata changes (e.g. after import analysis completes)
+watch(() => props.paper.metadata, () => {
+  if (!hasChanges.value && !isParsing.value) {
+    loadForm();
+  }
+}, { deep: true });
 
 function handleFieldChange() {
   hasChanges.value = true;
@@ -131,8 +141,13 @@ async function handleParse() {
       </div>
     </div>
 
-    <div v-if="parseStatus" class="parse-status">
-      {{ parseStatus }}
+    <div v-if="parseStatus || isAutoParsing || isQueued" class="parse-status">
+      <span v-if="isQueued" class="status-queued">{{ t('metadata.queued') }}</span>
+      <span v-else-if="isAutoParsing" class="status-parsing">
+        <span class="spinner" />
+        {{ t('metadata.discovering') }}
+      </span>
+      <span v-else>{{ parseStatus }}</span>
     </div>
 
     <div class="fields">
@@ -225,6 +240,30 @@ async function handleParse() {
   padding: $spacing-sm;
   background: $color-panel;
   border-radius: $radius-sm;
+}
+
+.status-queued {
+  color: $color-text-disabled;
+}
+
+.status-parsing {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid $color-border;
+  border-top-color: $color-text-secondary;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .fields {

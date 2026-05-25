@@ -1,0 +1,471 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "观复 API",
+    "description": "观复（Guanfu）文献论争图谱工具 HTTP API。用于 AI Agent 自动化操作观复的核心功能：项目管理、文献导入、元数据提取、图谱关系、AI 解析、知识库对话。\n\n所有端点仅监听 localhost:17800，不对外暴露。数据格式为 JSON。\n\n工作流程示例：\n1. POST /api/projects/open 打开项目\n2. POST /api/papers/import 导入 PDF\n3. POST /api/papers/{id}/ai-parse 解析文献\n4. POST /api/ai/recommend-relations 推荐关系\n5. POST /api/graph/save-layout 保存布局",
+    "version": "0.1.0",
+    "contact": { "name": "观复" }
+  },
+  "servers": [{ "url": "http://localhost:17800", "description": "本地观复实例" }],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "健康检查",
+        "operationId": "healthCheck",
+        "responses": {
+          "200": {
+            "description": "服务正常",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" },
+                    "app": { "type": "string", "example": "观复" },
+                    "version": { "type": "string", "example": "0.1.0" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/create": {
+      "post": {
+        "summary": "新建项目",
+        "operationId": "createProject",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "baseDir"],
+                "properties": {
+                  "name": { "type": "string", "description": "项目名称" },
+                  "baseDir": { "type": "string", "description": "项目存放目录（将在此目录下创建 .guanfu 文件夹）" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "创建成功", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } } },
+          "500": { "description": "创建失败", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/projects/open": {
+      "post": {
+        "summary": "打开项目",
+        "operationId": "openProject",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["projectPath"],
+                "properties": {
+                  "projectPath": { "type": "string", "description": "项目 .guanfu 文件夹路径" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "打开成功", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } } },
+          "404": { "description": "项目不存在", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/projects/recent": {
+      "get": {
+        "summary": "获取最近项目路径",
+        "operationId": "getRecentProject",
+        "responses": {
+          "200": {
+            "description": "最近项目路径（可能为 null）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "projectPath": { "type": "string", "nullable": true } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/default-dir": {
+      "get": {
+        "summary": "获取默认项目目录",
+        "operationId": "getDefaultDir",
+        "responses": {
+          "200": {
+            "description": "默认目录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "dir": { "type": "string" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/papers/import": {
+      "post": {
+        "summary": "导入 PDF 文件",
+        "operationId": "importPapers",
+        "description": "将 PDF 文件复制到项目的 papers/ 目录并注册为文献。返回新创建的 Paper 对象列表。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["projectPath", "filePaths"],
+                "properties": {
+                  "projectPath": { "type": "string" },
+                  "filePaths": { "type": "array", "items": { "type": "string" }, "description": "PDF 文件的绝对路径列表" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "导入成功", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Paper" } } } } }
+        }
+      }
+    },
+    "/api/papers/list": {
+      "get": {
+        "summary": "列出项目所有文献",
+        "operationId": "listPapers",
+        "parameters": [{ "name": "projectPath", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "文献列表", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Paper" } } } } }
+        }
+      }
+    },
+    "/api/papers/{paperId}": {
+      "delete": {
+        "summary": "删除文献",
+        "operationId": "deletePaper",
+        "parameters": [
+          { "name": "paperId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "projectPath", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "204": { "description": "删除成功" } }
+      }
+    },
+    "/api/papers/{paperId}/update": {
+      "post": {
+        "summary": "更新文献信息",
+        "operationId": "updatePaper",
+        "parameters": [{ "name": "paperId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["projectPath", "paper"],
+                "properties": {
+                  "projectPath": { "type": "string" },
+                  "paper": { "$ref": "#/components/schemas/Paper" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "更新成功", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Paper" } } } }
+        }
+      }
+    },
+    "/api/papers/{paperId}/ai-parse": {
+      "post": {
+        "summary": "AI 解析文献",
+        "operationId": "aiParsePaper",
+        "description": "从 PDF 提取文本（含 OCR 兜底），调用 AI 模型提取 8 个维度的结构化元数据。首次使用 OCR 时会自动下载模型（约 21MB）。",
+        "parameters": [{ "name": "paperId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["projectPath"],
+                "properties": { "projectPath": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "解析结果", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExtractedMetadata" } } } }
+        }
+      }
+    },
+    "/api/relations/add": {
+      "post": {
+        "summary": "添加文献关系",
+        "operationId": "addRelation",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["projectPath", "relation"],
+                "properties": {
+                  "projectPath": { "type": "string" },
+                  "relation": { "$ref": "#/components/schemas/RelationInput" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "添加成功", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Relation" } } } }
+        }
+      }
+    },
+    "/api/relations/{relationId}": {
+      "delete": {
+        "summary": "删除关系",
+        "operationId": "deleteRelation",
+        "parameters": [
+          { "name": "relationId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "projectPath", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "204": { "description": "删除成功" } }
+      }
+    },
+    "/api/graph/save-layout": {
+      "post": {
+        "summary": "保存图谱布局",
+        "operationId": "saveGraphLayout",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["projectPath", "layout"],
+                "properties": {
+                  "projectPath": { "type": "string" },
+                  "layout": { "$ref": "#/components/schemas/GraphLayout" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "保存成功" } }
+      }
+    },
+    "/api/ai/recommend-relations": {
+      "post": {
+        "summary": "AI 推荐关系",
+        "operationId": "aiRecommendRelations",
+        "description": "分析已解析文献的结构化元数据，推荐可能的支持、反对、修正等关系。至少需要 2 篇已解析文献。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["projectPath"],
+                "properties": { "projectPath": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "推荐列表", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/RelationRecommendation" } } } } }
+        }
+      }
+    },
+    "/api/ai/generate-insights": {
+      "post": {
+        "summary": "AI 生成洞察",
+        "operationId": "aiGenerateInsights",
+        "description": "分析整个项目的文献和关系图谱，生成研究空白、机会点等洞察。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["projectPath"],
+                "properties": { "projectPath": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "洞察列表", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Insight" } } } } }
+        }
+      }
+    },
+    "/api/chat/ask": {
+      "post": {
+        "summary": "知识库对话",
+        "operationId": "chatAsk",
+        "description": "基于项目的文献知识库进行问答。需要先在设置中配置向量化模型并在观复 GUI 中构建索引。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["projectPath", "question"],
+                "properties": {
+                  "projectPath": { "type": "string" },
+                  "question": { "type": "string", "description": "用户问题" },
+                  "locale": { "type": "string", "description": "回复语言（zh-CN, en 等）", "nullable": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "回答",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "answer": { "type": "string" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": { "error": { "type": "string" } }
+      },
+      "Project": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "papers": { "type": "array", "items": { "$ref": "#/components/schemas/Paper" } },
+          "relations": { "type": "array", "items": { "$ref": "#/components/schemas/Relation" } },
+          "graphLayout": { "$ref": "#/components/schemas/GraphLayout" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Paper": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "authors": { "type": "array", "items": { "type": "string" } },
+          "year": { "type": "integer", "nullable": true },
+          "abstract": { "type": "string", "nullable": true },
+          "filePath": { "type": "string" },
+          "metadata": { "$ref": "#/components/schemas/ExtractedMetadata", "nullable": true },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "notes": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ExtractedMetadata": {
+        "type": "object",
+        "description": "AI 或手动提取的 8 维度结构化元数据",
+        "properties": {
+          "title": { "type": "string" },
+          "authors": { "type": "array", "items": { "type": "string" } },
+          "year": { "type": "integer", "nullable": true },
+          "abstract": { "type": "string" },
+          "researchQuestion": { "type": "string", "description": "研究问题" },
+          "coreClaim": { "type": "string", "description": "核心主张" },
+          "assumptions": { "type": "string", "description": "前提假设" },
+          "theoreticalPerspective": { "type": "string", "description": "理论视角" },
+          "methodology": { "type": "string", "description": "研究方法" },
+          "findings": { "type": "string", "description": "主要发现" },
+          "limitations": { "type": "string", "description": "局限性" },
+          "selfPositioning": { "type": "string", "description": "学术定位" }
+        }
+      },
+      "RelationInput": {
+        "type": "object",
+        "required": ["sourceId", "targetId", "type", "evidence"],
+        "properties": {
+          "id": { "type": "string", "description": "可选，不提供则自动生成" },
+          "sourceId": { "type": "string", "description": "源文献 ID" },
+          "targetId": { "type": "string", "description": "目标文献 ID" },
+          "type": { "type": "string", "enum": ["supports", "opposes", "modifies", "adopts", "reinterprets"] },
+          "evidence": { "type": "string", "description": "关系理由" },
+          "isManual": { "type": "boolean" },
+          "confidence": { "type": "number", "nullable": true }
+        }
+      },
+      "Relation": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "sourceId": { "type": "string" },
+          "targetId": { "type": "string" },
+          "type": { "type": "string", "enum": ["supports", "opposes", "modifies", "adopts", "reinterprets"] },
+          "evidence": { "type": "string" },
+          "isManual": { "type": "boolean" },
+          "confidence": { "type": "number", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "RelationRecommendation": {
+        "type": "object",
+        "properties": {
+          "sourceId": { "type": "string" },
+          "targetId": { "type": "string" },
+          "type": { "type": "string", "enum": ["supports", "opposes", "modifies", "adopts", "reinterprets"] },
+          "evidence": { "type": "string" },
+          "confidence": { "type": "number" }
+        }
+      },
+      "Insight": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "category": { "type": "string" },
+          "severity": { "type": "string", "enum": ["info", "warning", "critical"] }
+        }
+      },
+      "GraphLayout": {
+        "type": "object",
+        "properties": {
+          "locked": { "type": "boolean" },
+          "zoom": { "type": "number", "nullable": true },
+          "pan": { "$ref": "#/components/schemas/GraphPosition", "nullable": true },
+          "positions": {
+            "type": "object",
+            "additionalProperties": { "$ref": "#/components/schemas/GraphPosition" }
+          }
+        }
+      },
+      "GraphPosition": {
+        "type": "object",
+        "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+      }
+    }
+  }
+}

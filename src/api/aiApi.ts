@@ -35,3 +35,11 @@ export function saveAiSettings(settings: AiSettings) {
 export function getAiSettingsMasked() {
   return safeInvoke<MaskedAiSettings>('get_ai_settings_masked');
 }
+
+export function toggleHttpServer(enabled: boolean) {
+  return safeInvoke<boolean>('toggle_http_server', { enabled });
+}
+
+export function getHttpServerStatus() {
+  return safeInvoke<[boolean, number]>('get_http_server_status');
+}

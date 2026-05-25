@@ -1,8 +1,10 @@
 use std::sync::Mutex;
 use crate::models::{AiSettings, OcrMethod};
+use crate::http_server::HttpServerHandle;
 
 pub struct AppState {
     pub ai_settings: Mutex<AiSettings>,
+    pub http_server_handle: Mutex<Option<HttpServerHandle>>,
 }
 
 impl Default for AppState {
@@ -18,10 +20,13 @@ impl Default for AppState {
             embedding_api_key: None,
             locale: None,
             default_project_dir: None,
+            http_api_enabled: false,
+            http_api_port: 17800,
         });
 
         Self {
             ai_settings: Mutex::new(settings),
+            http_server_handle: Mutex::new(None),
         }
     }
 }

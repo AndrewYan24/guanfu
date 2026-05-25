@@ -50,6 +50,16 @@ pub struct AiSettings {
     /// Default directory for new projects
     #[serde(default)]
     pub default_project_dir: Option<String>,
+    /// Whether the HTTP API server is enabled
+    #[serde(default)]
+    pub http_api_enabled: bool,
+    /// Port for the HTTP API server
+    #[serde(default = "default_http_port")]
+    pub http_api_port: u16,
+}
+
+fn default_http_port() -> u16 {
+    17800
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,6 +90,8 @@ pub struct MaskedAiSettings {
     pub embedding_base_url: Option<String>,
     pub masked_embedding_api_key: Option<String>,
     pub default_project_dir: Option<String>,
+    pub http_api_enabled: bool,
+    pub http_api_port: u16,
 }
 
 impl AiProviderConfig {

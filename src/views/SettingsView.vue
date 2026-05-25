@@ -6,6 +6,7 @@ import { useTheme } from '@/composables/useTheme';
 import { useToast } from '@/composables/useToast';
 import { open } from '@tauri-apps/plugin-dialog';
 import { availableLocales, setLocale, getLocale } from '@/i18n';
+import { toggleHttpServer } from '@/api/aiApi';
 import type { AiSettings, OcrMethod } from '@/types';
 import type { ThemeMode } from '@/composables/useTheme';
 
@@ -55,6 +56,9 @@ const embedding = reactive({
 
 const projectDir = ref('');
 
+const httpApiEnabled = ref(false);
+const httpApiPort = ref(17800);
+
 onMounted(async () => {
   await settingsStore.loadSettings();
   loadForm();
@@ -95,6 +99,8 @@ function loadForm() {
   embedding.apiKey = '';
 
   projectDir.value = s.defaultProjectDir || '';
+  httpApiEnabled.value = s.httpApiEnabled || false;
+  httpApiPort.value = s.httpApiPort || 17800;
 }
 
 function selectProvider(p: 'openaiCompatible' | 'anthropic' | null) {
@@ -148,6 +154,9 @@ function buildPayload(): AiSettings {
     settings.defaultProjectDir = projectDir.value;
   }
 
+  settings.httpApiEnabled = httpApiEnabled.value;
+  settings.httpApiPort = httpApiPort.value;
+
   return settings;
 }
 
@@ -176,6 +185,7 @@ watch(
     mineru.apiKey, mineru.apiBase,
     embedding.model, embedding.baseUrl, embedding.apiKey,
     projectDir.value,
+    httpApiPort.value,
   ],
   () => autoSave(),
   { deep: false }
@@ -189,6 +199,20 @@ async function browseProjectDir() {
   });
   if (dir) {
     projectDir.value = dir;
+  }
+}
+
+async function handleHttpToggle() {
+  try {
+    const running = await toggleHttpServer(httpApiEnabled.value);
+    httpApiEnabled.value = running;
+    toast.show(
+      running ? t('settings.httpApiStarted') : t('settings.httpApiStopped'),
+      'success'
+    );
+  } catch (e) {
+    httpApiEnabled.value = false;
+    toast.show(String(e), 'error');
   }
 }
 
@@ -214,6 +238,7 @@ const navItems: NavItem[] = [
   { id: 'provider', label: 'settings.modelProvider' },
   { id: 'embedding', label: 'settings.embedding' },
   { id: 'ocr', label: 'settings.ocr' },
+  { id: 'httpApi', label: 'settings.httpApi' },
   { id: 'appearance', label: 'settings.appearance' },
   { id: 'language', label: 'settings.language' },
   { id: 'project', label: 'settings.project' },
@@ -433,6 +458,46 @@ function scrollTo(id: string) {
               placeholder="https://mineru.net/api"
               class="input"
             />
+          </div>
+        </div>
+      </section>
+
+      <section id="httpApi" class="settings-section">
+        <h4 class="section-title">{{ t('settings.httpApi') }}</h4>
+        <p class="section-desc">{{ t('settings.httpApiDesc') }}</p>
+
+        <label class="toggle-row">
+          <span class="toggle-info">
+            <span class="toggle-label">{{ t('settings.httpApiEnable') }}</span>
+            <span class="toggle-hint">{{ t('settings.httpApiEnableHint') }}</span>
+          </span>
+          <input
+            type="checkbox"
+            class="toggle-switch"
+            :checked="httpApiEnabled"
+            @change="httpApiEnabled = ($event.target as HTMLInputElement).checked; handleHttpToggle()"
+          />
+        </label>
+
+        <div v-if="httpApiEnabled" class="http-api-info">
+          <div class="field">
+            <label>{{ t('settings.httpApiPort') }}</label>
+            <input
+              type="number"
+              v-model.number="httpApiPort"
+              min="1024"
+              max="65535"
+              class="input port-input"
+            />
+            <span class="field-hint">{{ t('settings.httpApiPortHint') }}</span>
+          </div>
+          <div class="http-api-links">
+            <a :href="`http://localhost:${httpApiPort}`" target="_blank" class="http-link">
+              {{ t('settings.httpApiDocs') }}
+            </a>
+            <a :href="`http://localhost:${httpApiPort}/openapi.json`" target="_blank" class="http-link">
+              OpenAPI
+            </a>
           </div>
         </div>
       </section>
@@ -957,5 +1022,36 @@ function scrollTo(id: string) {
 .about-text {
   color: $color-text-secondary;
   font-size: 13px;
+}
+
+.http-api-info {
+  margin-top: $spacing-md;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.port-input {
+  width: 120px;
+}
+
+.http-api-links {
+  display: flex;
+  gap: $spacing-md;
+}
+
+.http-link {
+  font-size: 12px;
+  color: $color-text-secondary;
+  text-decoration: none;
+  padding: $spacing-xs $spacing-sm;
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
+
+  &:hover {
+    color: $color-text-primary;
+    border-color: $color-node-border;
+    background: $color-panel;
+  }
 }
 </style>

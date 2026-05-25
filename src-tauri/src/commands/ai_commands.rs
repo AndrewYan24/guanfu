@@ -1,8 +1,10 @@
 use crate::errors::AppResult;
+use crate::http_server;
 use crate::models::{AiSettings, ExtractedMetadata, Insight, RelationRecommendation};
 use crate::services::{ai_manager, pdf_text_extractor, project_service};
 use crate::state::{self, AppState};
 use std::path::Path;
+use std::sync::Arc;
 use tauri::State;
 
 #[tauri::command]
@@ -215,5 +217,62 @@ pub async fn get_ai_settings_masked(
             else { format!("{}****{}", &k[..4], &k[k.len()-4..]) }
         }),
         default_project_dir: s.default_project_dir.clone(),
+        http_api_enabled: s.http_api_enabled,
+        http_api_port: s.http_api_port,
     })
+}
+
+#[tauri::command]
+pub async fn toggle_http_server(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> AppResult<bool> {
+    let mut settings = state.ai_settings.lock().unwrap().clone();
+    settings.http_api_enabled = enabled;
+
+    if enabled {
+        // Stop existing server if running
+        let mut handle = state.http_server_handle.lock().unwrap();
+        if let Some(mut h) = handle.take() {
+            http_server::stop_http_server(&mut h);
+        }
+
+        // Start new server
+        let shared = Arc::new(AppState {
+            ai_settings: std::sync::Mutex::new(settings.clone()),
+            http_server_handle: std::sync::Mutex::new(None),
+        });
+        // Share the actual ai_settings from the running state
+        *shared.ai_settings.lock().unwrap() = state.ai_settings.lock().unwrap().clone();
+
+        match http_server::start_http_server(shared, settings.http_api_port) {
+            Ok(h) => {
+                *handle = Some(h);
+                *state.ai_settings.lock().unwrap() = settings;
+                state::persist_settings(&state.ai_settings.lock().unwrap());
+                Ok(true)
+            }
+            Err(e) => Err(crate::errors::AppError::Unknown(format!(
+                "Failed to start HTTP server: {}",
+                e
+            ))),
+        }
+    } else {
+        // Stop server
+        let mut handle = state.http_server_handle.lock().unwrap();
+        if let Some(mut h) = handle.take() {
+            http_server::stop_http_server(&mut h);
+        }
+        *state.ai_settings.lock().unwrap() = settings;
+        state::persist_settings(&state.ai_settings.lock().unwrap());
+        Ok(false)
+    }
+}
+
+#[tauri::command]
+pub async fn get_http_server_status(
+    state: State<'_, AppState>,
+) -> AppResult<(bool, u16)> {
+    let settings = state.ai_settings.lock().unwrap();
+    Ok((settings.http_api_enabled, settings.http_api_port))
 }

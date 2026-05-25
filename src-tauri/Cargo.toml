@@ -28,3 +28,6 @@ paddle-ocr-rs = "0.6"
 pdf-render = "1.0.0-beta.6"
 ort = "=2.0.0-rc.10"
 image = "0.25"
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }

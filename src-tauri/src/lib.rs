@@ -1,8 +1,11 @@
 pub mod commands;
 pub mod errors;
+pub mod http_server;
 pub mod models;
 pub mod services;
 pub mod state;
+
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -11,6 +14,23 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(state::AppState::default())
+        .setup(|app| {
+            let state = app.state::<state::AppState>();
+            let settings = state.ai_settings.lock().unwrap().clone();
+            if settings.http_api_enabled {
+                let shared = std::sync::Arc::new(state::AppState::default());
+                *shared.ai_settings.lock().unwrap() = settings.clone();
+                match http_server::start_http_server(shared, settings.http_api_port) {
+                    Ok(handle) => {
+                        *state.http_server_handle.lock().unwrap() = Some(handle);
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to start HTTP API server: {}", e);
+                    }
+                }
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::create_project,
             commands::open_project,
@@ -41,6 +61,8 @@ pub fn run() {
             commands::test_ai_connection_stored,
             commands::save_ai_settings,
             commands::get_ai_settings_masked,
+            commands::toggle_http_server,
+            commands::get_http_server_status,
             commands::chat_ask,
             commands::chat_ask_stream,
             commands::chat_build_embeddings,

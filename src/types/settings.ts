@@ -23,6 +23,8 @@ export interface AiSettings {
   embeddingApiKey?: string;
   locale?: string;
   defaultProjectDir?: string;
+  httpApiEnabled?: boolean;
+  httpApiPort?: number;
 }
 
 export interface MaskedAiProviderConfig {
@@ -47,4 +49,6 @@ export interface MaskedAiSettings {
   embeddingBaseUrl?: string;
   maskedEmbeddingApiKey?: string;
   defaultProjectDir?: string;
+  httpApiEnabled: boolean;
+  httpApiPort: number;
 }

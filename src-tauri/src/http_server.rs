@@ -141,6 +141,7 @@ struct SaveLayoutBody {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct ChatBody {
     #[serde(rename = "projectPath")]
     project_path: String,

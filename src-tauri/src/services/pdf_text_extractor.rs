@@ -5,11 +5,43 @@ use std::path::{Path, PathBuf};
 /// Minimum number of meaningful characters to consider text extraction sufficient.
 const MIN_TEXT_LENGTH: usize = 100;
 
-/// Model download URLs (RapidAI/RapidOCR via ModelScope).
-const DET_MODEL_URL: &str = "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.6.0/onnx/PP-OCRv5/det/ch_PP-OCRv5_mobile_det.onnx";
-const CLS_MODEL_URL: &str = "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.6.0/onnx/PP-OCRv4/cls/ch_ppocr_mobile_v2.0_cls_infer.onnx";
-const REC_MODEL_URL: &str = "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.6.0/onnx/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile_infer.onnx";
-const DICT_URL: &str = "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.6.0/paddle/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile_infer/ppocrv5_dict.txt";
+/// Model download URLs. Each model has multiple mirrors (ModelScope + HuggingFace).
+/// Tries ModelScope first (faster in China), falls back to HuggingFace (global).
+fn model_sources() -> Vec<(&'static str, Vec<&'static str>)> {
+    vec![
+        (
+            "ch_PP-OCRv5_mobile_det.onnx",
+            vec![
+                "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.6.0/onnx/PP-OCRv5/det/ch_PP-OCRv5_mobile_det.onnx",
+                "https://huggingface.co/RapidAI/RapidOCR/resolve/main/onnx/PP-OCRv5/det/ch_PP-OCRv5_mobile_det.onnx",
+            ],
+        ),
+        (
+            "ch_ppocr_mobile_v2.0_cls_infer.onnx",
+            vec![
+                "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.6.0/onnx/PP-OCRv4/cls/ch_ppocr_mobile_v2.0_cls_infer.onnx",
+                "https://huggingface.co/RapidAI/RapidOCR/resolve/main/onnx/PP-OCRv4/cls/ch_ppocr_mobile_v2.0_cls_infer.onnx",
+            ],
+        ),
+        (
+            "ch_PP-OCRv5_rec_mobile_infer.onnx",
+            vec![
+                "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.6.0/onnx/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile_infer.onnx",
+                "https://huggingface.co/RapidAI/RapidOCR/resolve/main/onnx/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile_infer.onnx",
+            ],
+        ),
+        (
+            "ppocrv5_dict.txt",
+            vec![
+                "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.6.0/paddle/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile_infer/ppocrv5_dict.txt",
+                "https://huggingface.co/RapidAI/RapidOCR/resolve/main/paddle/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile_infer/ppocrv5_dict.txt",
+            ],
+        ),
+    ]
+}
+
+/// Maximum retry attempts per download source.
+const MAX_RETRIES: u32 = 3;
 
 /// Extract text from a PDF file using lopdf (local, no external dependency).
 pub fn extract_text(pdf_path: &Path) -> AppResult<String> {
@@ -49,15 +81,15 @@ fn models_dir() -> AppResult<PathBuf> {
 }
 
 /// Ensure OCR model files exist, downloading them if necessary.
+/// Tries multiple mirrors (ModelScope → HuggingFace) with retry logic.
 async fn ensure_models() -> AppResult<PathBuf> {
     let dir = models_dir()?;
-    let det_path = dir.join("ch_PP-OCRv5_mobile_det.onnx");
-    let cls_path = dir.join("ch_ppocr_mobile_v2.0_cls_infer.onnx");
-    let rec_path = dir.join("ch_PP-OCRv5_rec_mobile_infer.onnx");
-    let dict_path = dir.join("ppocrv5_dict.txt");
 
     // Check if all files exist
-    if det_path.exists() && cls_path.exists() && rec_path.exists() && dict_path.exists() {
+    let all_exist = model_sources()
+        .iter()
+        .all(|(filename, _)| dir.join(filename).exists());
+    if all_exist {
         return Ok(dir);
     }
 
@@ -70,18 +102,43 @@ async fn ensure_models() -> AppResult<PathBuf> {
         .build()
         .map_err(|e| crate::errors::AppError::Unknown(format!("创建 HTTP 客户端失败: {}", e)))?;
 
-    // Download missing files
-    if !det_path.exists() {
-        download_file(&client, DET_MODEL_URL, &det_path).await?;
-    }
-    if !cls_path.exists() {
-        download_file(&client, CLS_MODEL_URL, &cls_path).await?;
-    }
-    if !rec_path.exists() {
-        download_file(&client, REC_MODEL_URL, &rec_path).await?;
-    }
-    if !dict_path.exists() {
-        download_file(&client, DICT_URL, &dict_path).await?;
+    // Download each missing file, trying all mirrors
+    for (filename, sources) in model_sources() {
+        let path = dir.join(filename);
+        if path.exists() {
+            continue;
+        }
+
+        let mut last_err = String::new();
+        let mut downloaded = false;
+
+        for source_url in &sources {
+            for attempt in 1..=MAX_RETRIES {
+                match download_file(&client, source_url, &path).await {
+                    Ok(()) => {
+                        downloaded = true;
+                        break;
+                    }
+                    Err(e) => {
+                        last_err = format!("{}", e);
+                        if attempt < MAX_RETRIES {
+                            // Brief delay before retry
+                            tokio::time::sleep(std::time::Duration::from_millis(500 * attempt as u64)).await;
+                        }
+                    }
+                }
+            }
+            if downloaded {
+                break;
+            }
+        }
+
+        if !downloaded {
+            return Err(crate::errors::AppError::Unknown(format!(
+                "OCR 模型下载失败 ({}). 已尝试所有下载源。请检查网络连接。最后错误: {}",
+                filename, last_err
+            )));
+        }
     }
 
     Ok(dir)
@@ -92,11 +149,11 @@ async fn download_file(client: &reqwest::Client, url: &str, path: &Path) -> AppR
         .get(url)
         .send()
         .await
-        .map_err(|e| crate::errors::AppError::Unknown(format!("下载模型失败: {}", e)))?;
+        .map_err(|e| crate::errors::AppError::Unknown(format!("网络请求失败: {}", e)))?;
 
     if !resp.status().is_success() {
         return Err(crate::errors::AppError::Unknown(format!(
-            "下载模型失败: HTTP {}",
+            "HTTP {}",
             resp.status()
         )));
     }
@@ -104,10 +161,10 @@ async fn download_file(client: &reqwest::Client, url: &str, path: &Path) -> AppR
     let bytes = resp
         .bytes()
         .await
-        .map_err(|e| crate::errors::AppError::Unknown(format!("读取模型数据失败: {}", e)))?;
+        .map_err(|e| crate::errors::AppError::Unknown(format!("下载数据失败: {}", e)))?;
 
     std::fs::write(path, &bytes)
-        .map_err(|e| crate::errors::AppError::IoError(format!("写入模型文件失败: {}", e)))?;
+        .map_err(|e| crate::errors::AppError::IoError(format!("写入文件失败: {}", e)))?;
 
     Ok(())
 }

@@ -26,6 +26,9 @@ export function papersToElements(
       (r) => r.sourceId === paper.id || r.targetId === paper.id
     ).length;
 
+    // Controversial nodes get a size boost
+    const controversyBonus = opposingCount >= 2 ? opposingCount * 4 : 0;
+
     elements.push({
       data: {
         id: paper.id,
@@ -42,10 +45,10 @@ export function papersToElements(
       ]
         .filter(Boolean)
         .join(' '),
-      // Size based on relation count
+      // Size based on relation count, with bonus for controversial nodes
       style: {
-        width: Math.max(40, 40 + relationCount * 5),
-        height: Math.max(40, 40 + relationCount * 5),
+        width: Math.max(40, 40 + relationCount * 4 + controversyBonus),
+        height: Math.max(40, 40 + relationCount * 4 + controversyBonus),
       },
     });
   }
@@ -144,6 +147,7 @@ export function getCytoscapeStyles(): cytoscape.StylesheetCSS[] {
       css: {
         width: 1.5,
         'curve-style': 'bezier',
+        'control-point-step-size': 50,
         'target-arrow-shape': 'triangle',
         'arrow-scale': 0.8,
         'overlay-opacity': 0,
@@ -173,7 +177,7 @@ export function getCytoscapeStyles(): cytoscape.StylesheetCSS[] {
       css: {
         'line-color': opposes,
         'target-arrow-color': opposes,
-        width: 2,
+        width: 2.5,
       },
     },
     {

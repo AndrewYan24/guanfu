@@ -97,10 +97,18 @@ export const usePaperStore = defineStore('paper', () => {
     const hasAi = settings.activeProvider
       || settings.openaiCompatible?.enabled
       || settings.anthropic?.enabled;
-    if (!hasAi) return;
+    if (!hasAi) {
+      console.warn('[paperStore] No AI provider configured, skipping auto-parse');
+      return;
+    }
 
     isAutoResolving.value = true;
     const parsedIds: string[] = [];
+
+    // Read advanced settings
+    const concurrency = settings.advanced?.concurrency ?? 3;
+    const autoParse = settings.advanced?.autoParse ?? true;
+    const retryCount = settings.advanced?.retryCount ?? 1;
 
     // Mark all new papers as pending
     for (const p of newPapers) {
@@ -108,17 +116,26 @@ export const usePaperStore = defineStore('paper', () => {
     }
 
     try {
-      // Batch parse with concurrency of 2
-      const CONCURRENCY = 2;
-      for (let i = 0; i < newPapers.length; i += CONCURRENCY) {
-        const batch = newPapers.slice(i, i + CONCURRENCY);
-        const results = await Promise.all(
-          batch.map((p) => parseOnePaper(p, projectStore.projectPath!))
-        );
-        batch.forEach((p, j) => {
-          if (results[j]) parsedIds.push(p.id);
-          pendingPaperIds.value.delete(p.id);
-        });
+      if (autoParse) {
+        // Batch parse with configured concurrency
+        for (let i = 0; i < newPapers.length; i += concurrency) {
+          const batch = newPapers.slice(i, i + concurrency);
+          const results = await Promise.all(
+            batch.map(async (p) => {
+              for (let attempt = 0; attempt <= retryCount; attempt++) {
+                if (await parseOnePaper(p, projectStore.projectPath!)) return true;
+                if (attempt < retryCount) {
+                  await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+                }
+              }
+              return false;
+            })
+          );
+          batch.forEach((p, j) => {
+            if (results[j]) parsedIds.push(p.id);
+            pendingPaperIds.value.delete(p.id);
+          });
+        }
       }
 
       if (projectStore.currentProject) {
@@ -133,6 +150,8 @@ export const usePaperStore = defineStore('paper', () => {
         true,
         parsedIds.length > 0 ? parsedIds : undefined
       );
+    } catch (e) {
+      console.error('[paperStore] resolveAndRecommendRelations failed:', e);
     } finally {
       isAutoResolving.value = false;
       pendingPaperIds.value.clear();

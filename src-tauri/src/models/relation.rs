@@ -39,4 +39,6 @@ pub struct RelationRecommendation {
     pub r#type: String,
     pub confidence: f64,
     pub evidence: String,
+    #[serde(default)]
+    pub discovery_method: Option<String>,
 }

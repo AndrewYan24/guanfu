@@ -12,6 +12,12 @@ export interface MineruConfig {
   apiBase: string;
 }
 
+export interface AdvancedSettings {
+  concurrency: number;   // 1-5, default 3
+  autoParse: boolean;    // default true
+  retryCount: number;    // 0-3, default 1
+}
+
 export interface AiSettings {
   openaiCompatible?: AiProviderConfig;
   anthropic?: AiProviderConfig;
@@ -25,6 +31,7 @@ export interface AiSettings {
   defaultProjectDir?: string;
   httpApiEnabled?: boolean;
   httpApiPort?: number;
+  advanced?: AdvancedSettings;
 }
 
 export interface MaskedAiProviderConfig {
@@ -51,4 +58,5 @@ export interface MaskedAiSettings {
   defaultProjectDir?: string;
   httpApiEnabled: boolean;
   httpApiPort: number;
+  advanced?: AdvancedSettings;
 }

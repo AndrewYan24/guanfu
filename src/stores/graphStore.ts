@@ -132,10 +132,13 @@ export const useGraphStore = defineStore('graph', () => {
 
     isAutoRecommending.value = true;
     try {
-      const recommendations = await aiApi.aiRecommendRelations(
-        projectStore.projectPath,
-        newPaperIds
-      );
+      // Timeout after 120s to prevent hanging
+      const recommendations = await Promise.race([
+        aiApi.aiRecommendRelations(projectStore.projectPath, newPaperIds),
+        new Promise<[]>((_, reject) =>
+          setTimeout(() => reject(new Error('AI recommend timeout after 120s')), 120000)
+        ),
+      ]);
       const newRecs = recommendations.filter((rec) => {
         return !relations.value.some(
           (r) =>
@@ -161,8 +164,8 @@ export const useGraphStore = defineStore('graph', () => {
       } else {
         pendingRecommendations.value = newRecs;
       }
-    } catch {
-      // Recommendation failed, silently skip
+    } catch (e) {
+      console.error('[graphStore] autoRecommendRelations failed:', e);
     } finally {
       isAutoRecommending.value = false;
     }

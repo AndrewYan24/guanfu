@@ -25,6 +25,34 @@ pub struct MineruConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AdvancedSettings {
+    /// Number of concurrent paper parses (1-5, default 3)
+    #[serde(default = "default_concurrency")]
+    pub concurrency: u8,
+    /// Whether to auto-parse papers after import (default true)
+    #[serde(default = "default_true")]
+    pub auto_parse: bool,
+    /// Number of retries on parse failure (0-3, default 1)
+    #[serde(default = "default_retry_count")]
+    pub retry_count: u8,
+}
+
+fn default_concurrency() -> u8 { 3 }
+fn default_true() -> bool { true }
+fn default_retry_count() -> u8 { 1 }
+
+impl Default for AdvancedSettings {
+    fn default() -> Self {
+        Self {
+            concurrency: 3,
+            auto_parse: true,
+            retry_count: 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AiSettings {
     /// Which AI provider is active (None = no AI)
     pub openai_compatible: Option<AiProviderConfig>,
@@ -56,6 +84,9 @@ pub struct AiSettings {
     /// Port for the HTTP API server
     #[serde(default = "default_http_port")]
     pub http_api_port: u16,
+    /// Advanced processing settings
+    #[serde(default)]
+    pub advanced: Option<AdvancedSettings>,
 }
 
 fn default_http_port() -> u16 {
@@ -92,6 +123,7 @@ pub struct MaskedAiSettings {
     pub default_project_dir: Option<String>,
     pub http_api_enabled: bool,
     pub http_api_port: u16,
+    pub advanced: Option<AdvancedSettings>,
 }
 
 impl AiProviderConfig {

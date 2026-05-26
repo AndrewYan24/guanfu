@@ -59,6 +59,10 @@ const projectDir = ref('');
 const httpApiEnabled = ref(false);
 const httpApiPort = ref(17800);
 
+const advancedConcurrency = ref(3);
+const advancedAutoParse = ref(true);
+const advancedRetryCount = ref(1);
+
 onMounted(async () => {
   await settingsStore.loadSettings();
   loadForm();
@@ -101,6 +105,9 @@ function loadForm() {
   projectDir.value = s.defaultProjectDir || '';
   httpApiEnabled.value = s.httpApiEnabled || false;
   httpApiPort.value = s.httpApiPort || 17800;
+  advancedConcurrency.value = s.advanced?.concurrency ?? 3;
+  advancedAutoParse.value = s.advanced?.autoParse ?? true;
+  advancedRetryCount.value = s.advanced?.retryCount ?? 1;
 }
 
 function selectProvider(p: 'openaiCompatible' | 'anthropic' | null) {
@@ -157,6 +164,12 @@ function buildPayload(): AiSettings {
   settings.httpApiEnabled = httpApiEnabled.value;
   settings.httpApiPort = httpApiPort.value;
 
+  settings.advanced = {
+    concurrency: advancedConcurrency.value,
+    autoParse: advancedAutoParse.value,
+    retryCount: advancedRetryCount.value,
+  };
+
   return settings;
 }
 
@@ -186,6 +199,9 @@ watch(
     embedding.model, embedding.baseUrl, embedding.apiKey,
     projectDir.value,
     httpApiPort.value,
+    advancedConcurrency.value,
+    advancedAutoParse.value,
+    advancedRetryCount.value,
   ],
   () => autoSave(),
   { deep: false }
@@ -461,6 +477,50 @@ function scrollTo(id: string) {
           </div>
         </div>
       </section>
+
+      <details id="advanced" class="settings-section advanced-section">
+        <summary class="section-title summary-title">{{ t('settings.advanced') }}</summary>
+        <p class="section-desc">{{ t('settings.advancedDesc') }}</p>
+
+        <div class="advanced-fields">
+          <div class="field">
+            <label>{{ t('settings.concurrency') }}</label>
+            <input
+              type="number"
+              v-model.number="advancedConcurrency"
+              min="1"
+              max="5"
+              class="input port-input"
+            />
+            <span class="field-hint">{{ t('settings.concurrencyHint') }}</span>
+          </div>
+
+          <label class="toggle-row">
+            <span class="toggle-info">
+              <span class="toggle-label">{{ t('settings.autoParse') }}</span>
+              <span class="toggle-hint">{{ t('settings.autoParseHint') }}</span>
+            </span>
+            <input
+              type="checkbox"
+              class="toggle-switch"
+              :checked="advancedAutoParse"
+              @change="advancedAutoParse = ($event.target as HTMLInputElement).checked"
+            />
+          </label>
+
+          <div class="field">
+            <label>{{ t('settings.retryCount') }}</label>
+            <input
+              type="number"
+              v-model.number="advancedRetryCount"
+              min="0"
+              max="3"
+              class="input port-input"
+            />
+            <span class="field-hint">{{ t('settings.retryCountHint') }}</span>
+          </div>
+        </div>
+      </details>
 
       <section id="httpApi" class="settings-section">
         <h4 class="section-title">{{ t('settings.httpApi') }}</h4>
@@ -1053,5 +1113,35 @@ function scrollTo(id: string) {
     border-color: $color-node-border;
     background: $color-panel;
   }
+}
+
+.advanced-section {
+  summary {
+    cursor: pointer;
+    list-style: none;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+
+    &::before {
+      content: '\25B8';
+      display: inline-block;
+      margin-right: $spacing-xs;
+      font-size: 11px;
+      transition: transform 0.2s;
+    }
+  }
+
+  &[open] summary::before {
+    transform: rotate(90deg);
+  }
+}
+
+.advanced-fields {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+  margin-top: $spacing-md;
 }
 </style>

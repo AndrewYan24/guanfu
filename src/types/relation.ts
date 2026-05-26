@@ -31,4 +31,5 @@ export interface RelationRecommendation {
   type: RelationType;
   confidence: number;
   evidence: string;
+  discoveryMethod?: string;
 }

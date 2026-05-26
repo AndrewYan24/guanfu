@@ -219,6 +219,7 @@ pub async fn get_ai_settings_masked(
         default_project_dir: s.default_project_dir.clone(),
         http_api_enabled: s.http_api_enabled,
         http_api_port: s.http_api_port,
+        advanced: s.advanced.clone(),
     })
 }
 

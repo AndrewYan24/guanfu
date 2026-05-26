@@ -22,6 +22,7 @@ impl Default for AppState {
             default_project_dir: None,
             http_api_enabled: false,
             http_api_port: 17800,
+            advanced: None,
         });
 
         Self {

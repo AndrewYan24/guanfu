@@ -218,7 +218,15 @@ function startLayout(unpositioned: cytoscape.NodeCollection) {
     padding: isFirst ? 40 : 30,
     componentSpacing: 100,
     nodeRepulsion: () => 16000,
-    idealEdgeLength: () => 200,
+    idealEdgeLength: (edge: any) => {
+      if (edge.hasClass('relation-opposes')) return 260;
+      if (edge.hasClass('relation-supports')) return 180;
+      return 200;
+    },
+    edgeElasticity: (edge: any) => {
+      if (edge.hasClass('relation-opposes')) return 80;
+      return 120;
+    },
     nestingFactor: 0.5,
   }).run();
 }

@@ -5,7 +5,7 @@ use crate::services::{paper_service, project_service};
 #[tauri::command]
 pub async fn import_pdfs(project_path: String, file_paths: Vec<String>) -> AppResult<Vec<Paper>> {
     let mut project = project_service::open_project(&project_path)?;
-    let papers = paper_service::import_pdfs(&mut project, file_paths)?;
+    let papers = paper_service::import_pdfs(&mut project, file_paths).await?;
     project_service::save_project(&project)?;
     Ok(papers)
 }

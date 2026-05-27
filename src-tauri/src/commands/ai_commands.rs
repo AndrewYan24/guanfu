@@ -5,7 +5,7 @@ use crate::services::{ai_manager, pdf_text_extractor, project_service};
 use crate::state::{self, AppState};
 use std::path::Path;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{Emitter, State};
 
 #[tauri::command]
 pub async fn ai_parse_pdf(
@@ -92,6 +92,101 @@ pub async fn ai_parse_pdf(
     project_service::save_project(&project)?;
 
     Ok(metadata)
+}
+
+/// Batch parse multiple papers — loads project once, parses concurrently, saves once.
+/// Emits "parse_progress" events: { paperId, done, total }
+#[tauri::command]
+pub async fn ai_parse_pdfs_batch(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    project_path: String,
+    paper_ids: Vec<String>,
+) -> AppResult<std::collections::HashMap<String, ExtractedMetadata>> {
+    let mut project = project_service::open_project(&project_path)?;
+    let settings = state.ai_settings.lock().unwrap().clone();
+
+    let concurrency = settings
+        .advanced
+        .as_ref()
+        .map(|a| a.concurrency as usize)
+        .unwrap_or(3);
+
+    // Build work items: (paper_id, pdf_path)
+    let mut work_items = Vec::new();
+    for pid in &paper_ids {
+        if let Some(paper) = project.papers.iter().find(|p| &p.id == pid) {
+            let pdf_path = Path::new(&project_path)
+                .join("papers")
+                .join(&paper.file_path);
+            if pdf_path.exists() {
+                work_items.push((pid.clone(), pdf_path));
+            }
+        }
+    }
+
+    let total = work_items.len();
+    let sem = Arc::new(tokio::sync::Semaphore::new(concurrency));
+    let mut handles = Vec::new();
+
+    for (paper_id, pdf_path) in work_items {
+        let sem = sem.clone();
+        let s = settings.clone();
+        handles.push(tokio::spawn(async move {
+            let _permit = sem.acquire().await.unwrap();
+            let text = pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
+                .await
+                .unwrap_or_default();
+            let text = if text.trim().is_empty() {
+                format!("Paper ID: {}", paper_id)
+            } else {
+                text
+            };
+            let result = ai_manager::parse_text(&text, &s).await;
+            (paper_id, result)
+        }));
+    }
+
+    let mut results = std::collections::HashMap::new();
+    let mut done_count = 0usize;
+    for h in handles {
+        if let Ok((paper_id, result)) = h.await {
+            match result {
+                Ok(metadata) => {
+                    // Update project in-memory
+                    if let Some(paper) = project.papers.iter_mut().find(|p| p.id == paper_id) {
+                        if let Some(ref title) = metadata.title {
+                            if !title.is_empty() { paper.title = title.clone(); }
+                        }
+                        if let Some(ref authors) = metadata.authors {
+                            if !authors.is_empty() { paper.authors = authors.clone(); }
+                        }
+                        if metadata.year.is_some() { paper.year = metadata.year; }
+                        if let Some(ref abstract_text) = metadata.abstract_text {
+                            if !abstract_text.is_empty() {
+                                paper.abstract_text = Some(abstract_text.clone());
+                            }
+                        }
+                        paper.updated_at = chrono::Utc::now().to_rfc3339();
+                    }
+                    results.insert(paper_id, metadata);
+                }
+                Err(e) => {
+                    eprintln!("[ai_parse_pdfs_batch] paper {} failed: {}", paper_id, e);
+                }
+            }
+        }
+        done_count += 1;
+        let _ = app.emit("parse_progress", serde_json::json!({
+            "done": done_count,
+            "total": total,
+        }));
+    }
+
+    // Save once at the end
+    project_service::save_project(&project)?;
+
+    Ok(results)
 }
 
 #[tauri::command]

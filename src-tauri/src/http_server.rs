@@ -231,7 +231,7 @@ async fn import_papers(
     Json(body): Json<ImportPapersBody>,
 ) -> ApiResult<Json<Vec<Paper>>> {
     let mut project = project_service::open_project(&body.project_path)?;
-    let papers = paper_service::import_pdfs(&mut project, body.file_paths)?;
+    let papers = paper_service::import_pdfs(&mut project, body.file_paths).await?;
     project_service::save_project(&project)?;
     Ok(Json(papers))
 }

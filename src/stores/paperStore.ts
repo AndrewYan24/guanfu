@@ -62,33 +62,6 @@ export const usePaperStore = defineStore('paper', () => {
     }
   }
 
-  async function parseOnePaper(paper: Paper, projectPath: string) {
-    parsingPaperIds.value.add(paper.id);
-    try {
-      const metadata = await aiApi.aiParsePdf(projectPath, paper.id);
-      const idx = papers.value.findIndex((p) => p.id === paper.id);
-      if (idx !== -1) {
-        if (metadata.title) papers.value[idx].title = metadata.title;
-        if (metadata.authors?.length) papers.value[idx].authors = metadata.authors;
-        if (metadata.year) papers.value[idx].year = metadata.year;
-        if (metadata.abstract) papers.value[idx].abstract = metadata.abstract;
-        papers.value[idx].metadata = {
-          ...metadata,
-          isAiGenerated: true,
-          source: 'ai',
-        };
-        papers.value[idx].updatedAt = new Date().toISOString();
-        await paperApi.updatePaper(projectPath, papers.value[idx]);
-        return true;
-      }
-    } catch {
-      // Individual parse failed, skip
-    } finally {
-      parsingPaperIds.value.delete(paper.id);
-    }
-    return false;
-  }
-
   async function resolveAndRecommendRelations(newPapers: Paper[]) {
     const projectStore = useProjectStore();
     if (!projectStore.projectPath) return;
@@ -106,41 +79,42 @@ export const usePaperStore = defineStore('paper', () => {
     const parsedIds: string[] = [];
 
     // Read advanced settings
-    const concurrency = settings.advanced?.concurrency ?? 3;
     const autoParse = settings.advanced?.autoParse ?? true;
-    const retryCount = settings.advanced?.retryCount ?? 1;
 
-    // Mark all new papers as pending
+    // Mark all new papers as pending + parsing
     for (const p of newPapers) {
       pendingPaperIds.value.add(p.id);
+      parsingPaperIds.value.add(p.id);
     }
 
     try {
       if (autoParse) {
-        // Batch parse with configured concurrency
-        for (let i = 0; i < newPapers.length; i += concurrency) {
-          const batch = newPapers.slice(i, i + concurrency);
-          const results = await Promise.all(
-            batch.map(async (p) => {
-              for (let attempt = 0; attempt <= retryCount; attempt++) {
-                if (await parseOnePaper(p, projectStore.projectPath!)) return true;
-                if (attempt < retryCount) {
-                  await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-                }
-              }
-              return false;
-            })
-          );
-          batch.forEach((p, j) => {
-            if (results[j]) parsedIds.push(p.id);
-            pendingPaperIds.value.delete(p.id);
-          });
-        }
-      }
+        // Batch parse — single project load/save on backend, all papers concurrent
+        const paperIds = newPapers.map(p => p.id);
+        const resultMap = await aiApi.aiParsePdfsBatch(projectStore.projectPath, paperIds);
 
-      if (projectStore.currentProject) {
-        projectStore.currentProject.papers = papers.value;
-        projectStore.scheduleAutoSave();
+        // Apply results to local papers (resultMap is paperId → metadata)
+        for (const [paperId, metadata] of Object.entries(resultMap)) {
+          const idx = papers.value.findIndex(p => p.id === paperId);
+          if (idx === -1) continue;
+
+          if (metadata.title) papers.value[idx].title = metadata.title;
+          if (metadata.authors?.length) papers.value[idx].authors = metadata.authors;
+          if (metadata.year) papers.value[idx].year = metadata.year;
+          if (metadata.abstract) papers.value[idx].abstract = metadata.abstract;
+          papers.value[idx].metadata = {
+            ...metadata,
+            isAiGenerated: true,
+            source: 'ai',
+          };
+          papers.value[idx].updatedAt = new Date().toISOString();
+          parsedIds.push(paperId);
+        }
+
+        if (projectStore.currentProject) {
+          projectStore.currentProject.papers = papers.value;
+          projectStore.scheduleAutoSave();
+        }
       }
 
       // Recommend relations even if parsing partially failed — use all papers with metadata
@@ -155,6 +129,7 @@ export const usePaperStore = defineStore('paper', () => {
     } finally {
       isAutoResolving.value = false;
       pendingPaperIds.value.clear();
+      parsingPaperIds.value.clear();
     }
   }
 

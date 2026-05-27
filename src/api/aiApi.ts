@@ -9,6 +9,13 @@ export function aiParsePdf(projectPath: string, paperId: string) {
   });
 }
 
+export function aiParsePdfsBatch(projectPath: string, paperIds: string[]) {
+  return safeInvoke<Record<string, ExtractedMetadata>>('ai_parse_pdfs_batch', {
+    projectPath,
+    paperIds,
+  });
+}
+
 export function aiRecommendRelations(projectPath: string, newPaperIds?: string[]) {
   return safeInvoke<RelationRecommendation[]>(
     'ai_recommend_relations',

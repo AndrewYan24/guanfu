@@ -692,16 +692,61 @@ pub async fn recommend_relations_for_new(
     }
 
     let locale = settings.locale.as_deref();
-    let lang_instr = language_instruction(locale);
-    let mut prompt = format!("{}\n{}", lang_instr, RELATION_PROMPT_NEW);
-    prompt.push_str(&serde_json::to_string(&new_summaries).unwrap_or_default());
-    if !existing_summaries.is_empty() {
-        prompt.push_str("\n\n## 已有论文\n");
-        prompt.push_str(&serde_json::to_string(&existing_summaries).unwrap_or_default());
+    let lang_instr = language_instruction(locale).to_string();
+
+    // If new papers fit in a single call (≤12), use single call
+    const CHUNK_SIZE: usize = 12;
+    if new_summaries.len() <= CHUNK_SIZE {
+        let mut prompt = format!("{}\n{}", lang_instr, RELATION_PROMPT_NEW);
+        prompt.push_str(&serde_json::to_string(&new_summaries).unwrap_or_default());
+        if !existing_summaries.is_empty() {
+            prompt.push_str("\n\n## 已有论文\n");
+            prompt.push_str(&serde_json::to_string(&existing_summaries).unwrap_or_default());
+        }
+
+        let content = call_ai_raw(&prompt, settings).await?;
+        return parse_relation_response(&content, all_papers);
     }
 
-    let content = call_ai_raw(&prompt, settings).await?;
-    parse_relation_response(&content, all_papers)
+    // Chunk new papers and run multiple calls in parallel
+    let mut all_results = Vec::new();
+    let mut handles = Vec::new();
+    let owned_settings = settings.clone();
+
+    for chunk in new_summaries.chunks(CHUNK_SIZE) {
+        let chunk = chunk.to_vec();
+        let existing = existing_summaries.clone();
+        let lang = lang_instr.clone();
+        let s = owned_settings.clone();
+        handles.push(tokio::spawn(async move {
+            let mut prompt = format!("{}\n{}", lang, RELATION_PROMPT_NEW);
+            prompt.push_str(&serde_json::to_string(&chunk).unwrap_or_default());
+            if !existing.is_empty() {
+                prompt.push_str("\n\n## 已有论文\n");
+                prompt.push_str(&serde_json::to_string(&existing).unwrap_or_default());
+            }
+            call_ai_raw(&prompt, &s).await
+        }));
+    }
+
+    for h in handles {
+        if let Ok(Ok(content)) = h.await {
+            if let Ok(relations) = parse_relation_response(&content, all_papers) {
+                all_results.extend(relations);
+            }
+        }
+    }
+
+    // Deduplicate by (sourceId, targetId, type)
+    all_results.sort_by(|a, b| {
+        (&a.source_id, &a.target_id, &a.r#type)
+            .cmp(&(&b.source_id, &b.target_id, &b.r#type))
+    });
+    all_results.dedup_by(|a, b| {
+        a.source_id == b.source_id && a.target_id == b.target_id && a.r#type == b.r#type
+    });
+
+    Ok(all_results)
 }
 
 /// Call OpenAI and return raw text content (not parsed as ExtractedMetadata).

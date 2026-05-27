@@ -55,6 +55,7 @@ pub fn run() {
             commands::load_saved_insights,
             commands::save_insights,
             commands::ai_parse_pdf,
+            commands::ai_parse_pdfs_batch,
             commands::ai_recommend_relations,
             commands::ai_generate_insights,
             commands::test_ai_connection,

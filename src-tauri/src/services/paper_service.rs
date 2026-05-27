@@ -4,39 +4,60 @@ use std::path::Path;
 use crate::errors::{AppError, AppResult};
 use crate::models::{Paper, Project};
 
-pub fn import_pdfs(project: &mut Project, file_paths: Vec<String>) -> AppResult<Vec<Paper>> {
+pub async fn import_pdfs(project: &mut Project, file_paths: Vec<String>) -> AppResult<Vec<Paper>> {
     let papers_dir = Path::new(&project.path).join("papers");
     fs::create_dir_all(&papers_dir)?;
 
-    let mut new_papers = Vec::new();
-
+    // Validate all files first
+    let mut work = Vec::new();
     for file_path in file_paths {
         let source = Path::new(&file_path);
         if !source.exists() {
             return Err(AppError::FileNotFound(file_path));
         }
+        work.push(file_path);
+    }
 
-        let mut paper = Paper::new(
-            source
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string(),
-            String::new(),
-        );
+    // Copy files concurrently
+    let mut handles = Vec::new();
+    for file_path in work {
+        let papers_dir = papers_dir.clone();
+        handles.push(tokio::spawn(async move {
+            let source = Path::new(&file_path);
+            let paper = Paper::new(
+                source
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+                String::new(),
+            );
 
-        let dest_filename = format!("{}.pdf", paper.id);
-        let dest_path = papers_dir.join(&dest_filename);
+            let dest_filename = format!("{}.pdf", paper.id);
+            let dest_path = papers_dir.join(&dest_filename);
 
-        fs::copy(source, &dest_path)?;
+            // tokio::fs::copy for async file copy
+            tokio::fs::copy(source, &dest_path).await?;
 
+            Ok::<(Paper, String), AppError>((paper, dest_filename))
+        }));
+    }
+
+    let mut new_papers = Vec::new();
+    for h in handles {
+        let (mut paper, dest_filename) = h.await.map_err(|e| {
+            AppError::Unknown(format!("文件复制任务失败: {}", e))
+        })??;
         paper.file_path = dest_filename;
-        paper.title = source
+        paper.title = std::path::Path::new(&paper.file_path)
             .file_stem()
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
-
+        // Strip the .pdf suffix from title
+        if paper.title.ends_with(".pdf") {
+            paper.title.truncate(paper.title.len() - 4);
+        }
         project.papers.push(paper.clone());
         new_papers.push(paper);
     }

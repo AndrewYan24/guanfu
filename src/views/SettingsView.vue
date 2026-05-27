@@ -262,6 +262,31 @@ const navItems: NavItem[] = [
   { id: 'about', label: 'settings.about' },
 ];
 
+interface OssProject {
+  name: string;
+  url: string;
+  category: string;
+}
+
+const ossProjects: OssProject[] = [
+  { name: 'Tauri', url: 'https://tauri.app', category: 'Desktop' },
+  { name: 'Vue.js', url: 'https://vuejs.org', category: 'Frontend' },
+  { name: 'Vite', url: 'https://vitejs.dev', category: 'Frontend' },
+  { name: 'Pinia', url: 'https://pinia.vuejs.org', category: 'Frontend' },
+  { name: 'Cytoscape.js', url: 'https://js.cytoscape.org', category: 'Frontend' },
+  { name: 'PDF.js', url: 'https://mozilla.github.io/pdf.js', category: 'Frontend' },
+  { name: 'Lucide', url: 'https://lucide.dev', category: 'Frontend' },
+  { name: 'vue-i18n', url: 'https://vue-i18n.intlify.dev', category: 'Frontend' },
+  { name: 'axum', url: 'https://github.com/tokio-rs/axum', category: 'Backend' },
+  { name: 'lopdf', url: 'https://github.com/J-F-Liu/lopdf', category: 'Backend' },
+  { name: 'reqwest', url: 'https://github.com/seanmonstar/reqwest', category: 'Backend' },
+  { name: 'serde', url: 'https://github.com/serde-rs/serde', category: 'Backend' },
+  { name: 'PaddleOCR', url: 'https://github.com/PaddlePaddle/PaddleOCR', category: 'OCR' },
+  { name: 'RapidOCR', url: 'https://github.com/RapidAI/RapidOCR', category: 'OCR' },
+  { name: 'ort (ONNX Runtime)', url: 'https://github.com/pykeio/ort', category: 'OCR' },
+  { name: 'pdf-render', url: 'https://github.com/laurentzziu/pdf-render', category: 'OCR' },
+];
+
 function scrollTo(id: string) {
   const el = document.getElementById(id);
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -643,6 +668,23 @@ function scrollTo(id: string) {
         <p class="about-text">
           {{ t('settings.aboutText') }}
         </p>
+
+        <details class="oss-section">
+          <summary class="oss-toggle">{{ t('settings.openSource') }}</summary>
+          <p class="section-desc">{{ t('settings.openSourceDesc') }}</p>
+          <div class="oss-list">
+            <a
+              v-for="item in ossProjects"
+              :key="item.url"
+              :href="item.url"
+              target="_blank"
+              class="oss-item"
+            >
+              <span class="oss-name">{{ item.name }}</span>
+              <span class="oss-category">{{ item.category }}</span>
+            </a>
+          </div>
+        </details>
       </section>
     </div>
   </div>
@@ -1143,5 +1185,75 @@ function scrollTo(id: string) {
   flex-direction: column;
   gap: $spacing-md;
   margin-top: $spacing-md;
+}
+
+.oss-section {
+  margin-top: $spacing-lg;
+
+  summary {
+    cursor: pointer;
+    list-style: none;
+    font-size: 13px;
+    color: $color-text-secondary;
+    padding: $spacing-sm 0;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+
+    &::before {
+      content: '\25B8';
+      display: inline-block;
+      margin-right: $spacing-xs;
+      font-size: 11px;
+      transition: transform 0.2s;
+    }
+  }
+
+  &[open] summary::before {
+    transform: rotate(90deg);
+  }
+}
+
+.oss-toggle {
+  user-select: none;
+
+  &:hover {
+    color: $color-text-primary;
+  }
+}
+
+.oss-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: $spacing-sm;
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
+  overflow: hidden;
+}
+
+.oss-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: $spacing-sm $spacing-md;
+  text-decoration: none;
+  color: $color-text-primary;
+  background: $color-panel;
+  font-size: 12px;
+
+  &:hover {
+    background: $color-border;
+  }
+}
+
+.oss-name {
+  font-weight: 500;
+}
+
+.oss-category {
+  font-size: 11px;
+  color: $color-text-disabled;
 }
 </style>

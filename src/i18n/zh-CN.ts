@@ -141,6 +141,8 @@ export default {
     languageHint: '选择的语言将影响 AI 回复的语言',
     about: '关于',
     aboutText: '观复 — 文献论争图谱工具 v0.1.0',
+    openSource: '开源项目',
+    openSourceDesc: '观复依赖以下优秀的开源项目，点击可查看项目主页。',
     project: '项目',
     projectDir: '项目保存目录',
     projectDirHint: '新建项目的默认存放位置',

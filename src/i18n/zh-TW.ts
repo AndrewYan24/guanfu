@@ -141,6 +141,8 @@ export default {
     languageHint: '選擇的語言將影響 AI 回覆的語言',
     about: '關於',
     aboutText: '觀復 — 文獻論爭圖譜工具 v0.1.0',
+    openSource: '開源專案',
+    openSourceDesc: '觀復依賴以下優秀的開源專案，點擊可查看專案主頁。',
     project: '專案',
     projectDir: '專案儲存目錄',
     projectDirHint: '新增專案的預設存放位置',

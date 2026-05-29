@@ -1,4 +1,4 @@
-use crate::errors::{AppError, AppResult};
+use crate::errors::{self as app_err, AppError, AppResult};
 use crate::models::{GraphLayout, Insight, Relation};
 use crate::services::{ai_manager, project_service};
 use crate::state::AppState;
@@ -11,6 +11,14 @@ pub async fn add_relation(project_path: String, relation: Relation) -> AppResult
     project.relations.push(relation.clone());
     project_service::save_project(&project)?;
     Ok(relation)
+}
+
+#[tauri::command]
+pub async fn add_relations_batch(project_path: String, relations: Vec<Relation>) -> AppResult<Vec<Relation>> {
+    let mut project = project_service::open_project(&project_path)?;
+    project.relations.extend(relations.clone());
+    project_service::save_project(&project)?;
+    Ok(relations)
 }
 
 #[tauri::command]
@@ -51,7 +59,7 @@ pub async fn run_insight_analysis(
     let mut insights = run_rule_based_insights(&project);
 
     // AI insights (if configured)
-    let settings = state.ai_settings.lock().unwrap().clone();
+    let settings = app_err::lock_mutex(&state.ai_settings)?.clone();
     let papers_with_meta: Vec<_> = project
         .papers
         .iter()

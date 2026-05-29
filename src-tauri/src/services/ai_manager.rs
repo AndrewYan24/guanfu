@@ -5,7 +5,7 @@ use tauri::Emitter;
 /// Generate language instruction based on user's UI locale setting.
 fn language_instruction(locale: Option<&str>) -> &str {
     match locale {
-        Some(l) if l.starts_with("zh") => "使用中文回答。",
+        Some(l) if l == "sim" || l == "tra" || l.starts_with("zh") => "使用中文回答。",
         Some("eo") => "Respondu en Esperanto.",
         _ => "Respond in English.",
     }
@@ -141,7 +141,7 @@ pub async fn parse_text(text: &str, settings: &AiSettings) -> AppResult<Extracte
         let current_json = serde_json::to_string(&metadata).unwrap_or_default();
         let fill_prompt = format!("{}\n{}\n\n{}\n{}",
             lang_instr, FILL_EMPTY_PROMPT, current_json,
-            if locale.map_or(false, |l| l.starts_with("zh")) { "请返回完整的 JSON 对象，所有字段都必须有内容：" }
+            if locale.map_or(false, |l| l == "sim" || l == "tra" || l.starts_with("zh")) { "请返回完整的 JSON 对象，所有字段都必须有内容：" }
             else { "Return the complete JSON object, all fields must have content:" }
         );
 

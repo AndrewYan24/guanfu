@@ -5,6 +5,10 @@ export function addRelation(projectPath: string, relation: Relation) {
   return safeInvoke<Relation>('add_relation', { projectPath, relation });
 }
 
+export function addRelationsBatch(projectPath: string, relations: Relation[]) {
+  return safeInvoke<Relation[]>('add_relations_batch', { projectPath, relations });
+}
+
 export function updateRelation(projectPath: string, relation: Relation) {
   return safeInvoke<Relation>('update_relation', { projectPath, relation });
 }

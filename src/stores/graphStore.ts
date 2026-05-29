@@ -43,12 +43,9 @@ export const useGraphStore = defineStore('graph', () => {
     const projectStore = useProjectStore();
     if (!projectStore.projectPath || newRelations.length === 0) return;
 
-    // Persist all relations to backend
-    const added = await Promise.all(
-      newRelations.map((r) => graphApi.addRelation(projectStore.projectPath!, r))
-    );
+    // Single batch API call instead of N individual calls
+    const added = await graphApi.addRelationsBatch(projectStore.projectPath, newRelations);
 
-    // Single reactive update
     relations.value.push(...added);
     if (projectStore.currentProject) {
       projectStore.currentProject.relations = relations.value;

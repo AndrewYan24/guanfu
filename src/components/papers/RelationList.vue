@@ -153,7 +153,7 @@ function selectTarget(id: string) {
         <input
           v-model="searchQuery"
           class="form-input"
-          placeholder="搜索文献..."
+          :placeholder="t('graph.searchPaper')"
         />
         <div v-if="searchQuery && !targetId" class="search-results">
           <button
@@ -184,7 +184,7 @@ function selectTarget(id: string) {
         <textarea
           v-model="evidence"
           class="form-textarea"
-          placeholder="描述这两篇文献之间的关系..."
+          :placeholder="t('graph.relationEvidencePlaceholder')"
         />
       </div>
       <button

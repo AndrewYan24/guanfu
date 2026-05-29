@@ -283,7 +283,7 @@ async fn ai_parse_paper(
         .join("papers")
         .join(&paper.file_path);
 
-    let settings = state.ai_settings.lock().unwrap().clone();
+    let settings = state.ai_settings.lock().expect("ai_settings mutex poisoned").clone();
 
     let text = pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
         .await
@@ -371,7 +371,7 @@ async fn ai_recommend_relations(
         return Ok(Json(vec![]));
     }
 
-    let settings = state.ai_settings.lock().unwrap().clone();
+    let settings = state.ai_settings.lock().expect("ai_settings mutex poisoned").clone();
     let recommendations = ai_manager::recommend_relations(&papers_with_meta, &settings).await?;
     Ok(Json(recommendations))
 }
@@ -381,7 +381,7 @@ async fn ai_generate_insights(
     Json(body): Json<ProjectOnlyBody>,
 ) -> ApiResult<Json<Vec<Insight>>> {
     let project = project_service::open_project(&body.project_path)?;
-    let settings = state.ai_settings.lock().unwrap().clone();
+    let settings = state.ai_settings.lock().expect("ai_settings mutex poisoned").clone();
     let insights = ai_manager::generate_insights(&project, &settings).await?;
     Ok(Json(insights))
 }
@@ -392,7 +392,7 @@ async fn chat_ask(
     State(state): State<SharedState>,
     Json(body): Json<ChatBody>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let mut settings = state.ai_settings.lock().unwrap().clone();
+    let mut settings = state.ai_settings.lock().expect("ai_settings mutex poisoned").clone();
     // Apply locale from request if provided
     if let Some(locale) = body.locale {
         settings.locale = Some(locale);

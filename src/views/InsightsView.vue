@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watch, onMounted } from 'vue';
+import { watch, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useProjectStore } from '@/stores/projectStore';
 import { useInsightStore } from '@/stores/insightStore';
@@ -11,6 +11,13 @@ const projectStore = useProjectStore();
 const insightStore = useInsightStore();
 const paperStore = usePaperStore();
 const graphStore = useGraphStore();
+
+// Track previous values to avoid redundant autoRun on mount
+const prevPaperCount = ref(paperStore.papers.length);
+const prevRelationCount = ref(graphStore.relations.length);
+const prevMetadataKey = ref(
+  paperStore.papers.map(p => `${p.id}:${p.metadata ? 'm' : ''}:${p.updatedAt}`).join(',')
+);
 
 function triggerAutoRun() {
   if (projectStore.projectPath) {
@@ -30,16 +37,31 @@ onMounted(async () => {
   }
 });
 
-// Watch papers count
-watch(() => paperStore.papers.length, triggerAutoRun);
+// Watch papers count — only fire on actual change
+watch(() => paperStore.papers.length, (newVal) => {
+  if (newVal !== prevPaperCount.value) {
+    prevPaperCount.value = newVal;
+    triggerAutoRun();
+  }
+});
 
-// Watch relations count
-watch(() => graphStore.relations.length, triggerAutoRun);
+// Watch relations count — only fire on actual change
+watch(() => graphStore.relations.length, (newVal) => {
+  if (newVal !== prevRelationCount.value) {
+    prevRelationCount.value = newVal;
+    triggerAutoRun();
+  }
+});
 
-// Watch paper metadata changes (title, updatedAt as proxy)
+// Watch paper metadata changes — only fire on actual change
 watch(
   () => paperStore.papers.map(p => `${p.id}:${p.metadata ? 'm' : ''}:${p.updatedAt}`).join(','),
-  triggerAutoRun
+  (newVal) => {
+    if (newVal !== prevMetadataKey.value) {
+      prevMetadataKey.value = newVal;
+      triggerAutoRun();
+    }
+  }
 );
 
 function typeLabel(type: string): string {

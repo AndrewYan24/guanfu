@@ -16,13 +16,13 @@ pub fn run() {
         .manage(state::AppState::default())
         .setup(|app| {
             let state = app.state::<state::AppState>();
-            let settings = state.ai_settings.lock().unwrap().clone();
+            let settings = state.ai_settings.lock().expect("ai_settings mutex poisoned").clone();
             if settings.http_api_enabled {
                 let shared = std::sync::Arc::new(state::AppState::default());
-                *shared.ai_settings.lock().unwrap() = settings.clone();
+                *shared.ai_settings.lock().expect("shared ai_settings mutex poisoned") = settings.clone();
                 match http_server::start_http_server(shared, settings.http_api_port) {
                     Ok(handle) => {
-                        *state.http_server_handle.lock().unwrap() = Some(handle);
+                        *state.http_server_handle.lock().expect("http_server_handle mutex poisoned") = Some(handle);
                     }
                     Err(e) => {
                         eprintln!("Failed to start HTTP API server: {}", e);
@@ -48,6 +48,7 @@ pub fn run() {
             commands::search_metadata_candidates,
             commands::apply_metadata_candidate,
             commands::add_relation,
+            commands::add_relations_batch,
             commands::update_relation,
             commands::delete_relation,
             commands::save_graph_layout,

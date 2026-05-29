@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open, save } from '@tauri-apps/plugin-dialog';
+import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { useProjectStore } from '@/stores/projectStore';
 import { usePaperStore } from '@/stores/paperStore';
 import { useGraphStore } from '@/stores/graphStore';
 import { readPdfFile } from '@/api/paperApi';
 import PaperList from '@/components/papers/PaperList.vue';
-import PaperImportDropzone from '@/components/papers/PaperImportDropzone.vue';
 import PdfReader from '@/components/pdf/PdfReader.vue';
 import MetadataEditor from '@/components/papers/MetadataEditor.vue';
 import RelationList from '@/components/papers/RelationList.vue';
@@ -19,6 +19,8 @@ const graphStore = useGraphStore();
 const isEditingName = ref(false);
 const editingName = ref('');
 const nameInputRef = ref<HTMLInputElement | null>(null);
+const isDragging = ref(false);
+const pendingImportPaths = ref<string[]>([]);
 
 function startEditName() {
   editingName.value = projectStore.currentProject?.name || '';
@@ -72,29 +74,17 @@ async function loadPdfData() {
 }
 
 // Load PDF when paper changes (also fires on mount if paper already selected)
+// PdfReader handles scroll save/restore internally via its own scroll handler
 watch(
   () => paperStore.selectedPaper?.id,
-  (newId, oldId) => {
-    if (oldId && oldId !== newId) {
-      // Save scroll before PdfReader is destroyed
-      const el = document.querySelector('.pdf-container') as HTMLElement | null;
-      if (el) {
-        paperStore.savePdfScrollPosition(oldId, el.scrollTop);
-      }
-    }
+  () => {
     loadPdfData();
   },
   { immediate: true }
 );
 
-// Save scroll when leaving PDF tab, reload when entering
-watch(activeTab, (tab, oldTab) => {
-  if (oldTab === 'pdf') {
-    const el = document.querySelector('.pdf-container') as HTMLElement | null;
-    if (el && paperStore.selectedPaperId) {
-      paperStore.savePdfScrollPosition(paperStore.selectedPaperId, el.scrollTop);
-    }
-  }
+// Reload PDF when re-entering the PDF tab
+watch(activeTab, (tab) => {
   if (tab === 'pdf') {
     loadPdfData();
   }
@@ -125,12 +115,111 @@ function handleNewProject() {
 async function handleImportFiles(paths: string[]) {
   await paperStore.importPdfs(paths);
 }
+
+async function openImportDialog() {
+  const selected = await open({
+    multiple: true,
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+  });
+  if (selected) {
+    const paths = Array.isArray(selected) ? selected : [selected];
+    if (paths.length) {
+      handleImportFiles(paths);
+    }
+  }
+}
+
+function escapeCsv(val: string): string {
+  if (!val) return '';
+  if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+    return '"' + val.replace(/"/g, '""') + '"';
+  }
+  return val;
+}
+
+async function exportCsv() {
+  const papers = paperStore.papers;
+  if (papers.length === 0) return;
+
+  const headers = ['Title', 'Authors', 'Year', 'Abstract', 'Research Question', 'Core Claim', 'Methodology', 'Findings', 'Tags', 'Notes'];
+  const rows = papers.map(p => [
+    escapeCsv(p.title),
+    escapeCsv(p.authors.join('; ')),
+    String(p.year || ''),
+    escapeCsv(p.abstract || ''),
+    escapeCsv(p.metadata?.researchQuestion || ''),
+    escapeCsv(p.metadata?.coreClaim || ''),
+    escapeCsv(p.metadata?.methodology || ''),
+    escapeCsv(p.metadata?.findings || ''),
+    escapeCsv(p.tags.join('; ')),
+    escapeCsv(p.notes || ''),
+  ].join(','));
+
+  const csv = '﻿' + headers.join(',') + '\n' + rows.join('\n');
+
+  const filePath = await save({
+    defaultPath: `${projectStore.currentProject?.name || 'export'}.csv`,
+    filters: [{ name: 'CSV', extensions: ['csv'] }],
+  });
+  if (!filePath) return;
+
+  await writeTextFile(filePath, csv);
+}
+
+function handleDragOver(e: DragEvent) {
+  e.preventDefault();
+  isDragging.value = true;
+}
+
+function handleDragLeave() {
+  isDragging.value = false;
+}
+
+function handleDrop(e: DragEvent) {
+  e.preventDefault();
+  isDragging.value = false;
+  openImportDialog();
+}
+
+function handleDropEmpty(e: DragEvent) {
+  e.preventDefault();
+  isDragging.value = false;
+  const files = e.dataTransfer?.files;
+  if (!files || files.length === 0) return;
+  const paths: string[] = [];
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    if (f.name.toLowerCase().endsWith('.pdf')) {
+      // Tauri adds path to File objects
+      paths.push((f as any).path || f.name);
+    }
+  }
+  if (paths.length === 0) return;
+  pendingImportPaths.value = paths;
+  projectStore.showCreateDialog = true;
+}
+
+// Auto-import pending files after project is created
+watch(() => projectStore.hasProject, async (hasProject) => {
+  if (hasProject && pendingImportPaths.value.length > 0) {
+    const paths = [...pendingImportPaths.value];
+    pendingImportPaths.value = [];
+    await handleImportFiles(paths);
+  }
+});
 </script>
 
 <template>
   <div class="library-view">
     <!-- No project state -->
-    <div v-if="!projectStore.hasProject" class="empty-state">
+    <div
+      v-if="!projectStore.hasProject"
+      class="empty-state"
+      :class="{ 'drag-over': isDragging }"
+      @dragover="handleDragOver"
+      @dragleave="handleDragLeave"
+      @drop="handleDropEmpty"
+    >
       <div class="empty-content">
         <h2 class="empty-title">观复</h2>
         <p class="empty-desc">{{ t('common.appSubtitle') }}</p>
@@ -147,7 +236,13 @@ async function handleImportFiles(paths: string[]) {
 
     <!-- Has project state -->
     <div v-else class="library-layout">
-      <div class="library-sidebar">
+      <div
+        class="library-sidebar"
+        :class="{ 'drag-over': isDragging }"
+        @dragover="handleDragOver"
+        @dragleave="handleDragLeave"
+        @drop="handleDrop"
+      >
         <div class="library-header">
           <div class="header-top">
             <div v-if="isEditingName" class="name-edit-wrapper">
@@ -160,11 +255,32 @@ async function handleImportFiles(paths: string[]) {
                 @keyup.escape="cancelEditName"
               />
             </div>
-            <h3 v-else class="project-name" @click="startEditName" title="点击修改项目名">
-              {{ projectStore.currentProject?.name }}
-            </h3>
+            <template v-else>
+              <h3 class="project-name" @click="startEditName">
+                {{ projectStore.currentProject?.name }}
+              </h3>
+              <span v-if="paperStore.papers.length > 0" class="paper-count">
+                {{ paperStore.papers.length }}
+              </span>
+            </template>
+            <button class="import-btn" @click="openImportDialog" :title="t('library.importPdfs')">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <line x1="7" y1="2" x2="7" y2="12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                <line x1="2" y1="7" x2="12" y2="7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <button
+              v-if="paperStore.papers.length > 0"
+              class="import-btn"
+              @click="exportCsv"
+              :title="t('library.exportCsv')"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M3 9l4 3 4-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                <line x1="7" y1="2" x2="7" y2="11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+              </svg>
+            </button>
           </div>
-          <PaperImportDropzone @import="handleImportFiles" />
         </div>
         <PaperList />
       </div>
@@ -188,28 +304,28 @@ async function handleImportFiles(paths: string[]) {
               :class="{ active: activeTab === 'pdf' }"
               @click="activeTab = 'pdf'"
             >
-              PDF 阅读
+              {{ t('library.tabPdf') }}
             </button>
             <button
               class="tab"
               :class="{ active: activeTab === 'metadata' }"
               @click="activeTab = 'metadata'"
             >
-              结构化数据
+              {{ t('library.tabMetadata') }}
             </button>
             <button
               class="tab"
               :class="{ active: activeTab === 'notes' }"
               @click="activeTab = 'notes'"
             >
-              笔记
+              {{ t('library.tabNotes') }}
             </button>
             <button
               class="tab"
               :class="{ active: activeTab === 'relations' }"
               @click="activeTab = 'relations'"
             >
-              关系
+              {{ t('library.tabRelations') }}
             </button>
           </div>
           <div class="tab-content">
@@ -252,6 +368,19 @@ async function handleImportFiles(paths: string[]) {
   align-items: center;
   justify-content: center;
   height: 100%;
+  position: relative;
+
+  &.drag-over {
+    &::after {
+      content: '';
+      position: absolute;
+      inset: 16px;
+      border: 1px dashed $color-text-secondary;
+      border-radius: $radius-md;
+      pointer-events: none;
+      z-index: 10;
+    }
+  }
 }
 
 .empty-content {
@@ -322,32 +451,82 @@ async function handleImportFiles(paths: string[]) {
   display: flex;
   flex-direction: column;
   height: 100%;
+  position: relative;
+
+  &.drag-over {
+    &::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.03);
+      border: 1px dashed $color-text-secondary;
+      border-right: none;
+      pointer-events: none;
+      z-index: 10;
+    }
+  }
 }
 
 .library-header {
-  padding: $spacing-lg;
+  height: 48px;
+  padding: 0 $spacing-lg;
+  display: flex;
+  align-items: center;
   border-bottom: 1px solid $color-border;
+  flex-shrink: 0;
 }
 
 .header-top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: $spacing-md;
+  gap: $spacing-sm;
+  width: 100%;
 }
 
 .project-name {
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  padding: 2px 4px;
-  margin: -2px -4px;
+  margin: 0;
   border-radius: $radius-sm;
   transition: background $transition-fast;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 
   &:hover {
     background: $color-panel;
   }
+}
+
+.import-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
+  background: $color-bg;
+  color: $color-text-secondary;
+  cursor: pointer;
+  transition: all $transition-fast;
+
+  &:hover {
+    border-color: $color-text-secondary;
+    color: $color-text-primary;
+    background: $color-panel;
+  }
+}
+
+.paper-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: $color-text-disabled;
+  line-height: 1;
 }
 
 .name-edit-wrapper {

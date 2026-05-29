@@ -47,3 +47,8 @@ impl From<anyhow::Error> for AppError {
 }
 
 pub type AppResult<T> = Result<T, AppError>;
+
+/// Helper: convert a poisoned mutex lock into an AppError.
+pub fn lock_mutex<'a, T>(m: &'a std::sync::Mutex<T>) -> AppResult<std::sync::MutexGuard<'a, T>> {
+    m.lock().map_err(|_| AppError::Unknown("内部状态锁异常".to_string()))
+}

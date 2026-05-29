@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
@@ -8,37 +9,46 @@ pub async fn import_pdfs(project: &mut Project, file_paths: Vec<String>) -> AppR
     let papers_dir = Path::new(&project.path).join("papers");
     fs::create_dir_all(&papers_dir)?;
 
-    // Validate all files first
+    // Build set of existing paper IDs for duplicate detection
+    let existing_ids: HashSet<&str> =
+        project.papers.iter().map(|p| p.id.as_str()).collect();
+
+    // Validate and filter files
     let mut work = Vec::new();
     for file_path in file_paths {
         let source = Path::new(&file_path);
         if !source.exists() {
             return Err(AppError::FileNotFound(file_path));
         }
-        work.push(file_path);
+
+        // Check for duplicate by file stem (same as paper ID generation)
+        let stem = source
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        if existing_ids.contains(stem.as_str()) {
+            eprintln!("[import] skipping duplicate: {}", stem);
+            continue;
+        }
+
+        work.push((file_path, stem));
+    }
+
+    if work.is_empty() {
+        return Ok(vec![]);
     }
 
     // Copy files concurrently
     let mut handles = Vec::new();
-    for file_path in work {
+    for (file_path, stem) in work {
         let papers_dir = papers_dir.clone();
         handles.push(tokio::spawn(async move {
             let source = Path::new(&file_path);
-            let paper = Paper::new(
-                source
-                    .file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string(),
-                String::new(),
-            );
-
+            let paper = Paper::new(stem, String::new());
             let dest_filename = format!("{}.pdf", paper.id);
             let dest_path = papers_dir.join(&dest_filename);
-
-            // tokio::fs::copy for async file copy
             tokio::fs::copy(source, &dest_path).await?;
-
             Ok::<(Paper, String), AppError>((paper, dest_filename))
         }));
     }

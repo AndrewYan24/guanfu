@@ -64,7 +64,9 @@ const advancedAutoParse = ref(true);
 const advancedRetryCount = ref(1);
 
 onMounted(async () => {
-  await settingsStore.loadSettings();
+  if (!settingsStore.maskedSettings) {
+    await settingsStore.loadSettings();
+  }
   loadForm();
   await nextTick();
   loaded.value = true;

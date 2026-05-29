@@ -29,18 +29,17 @@ pub async fn delete_paper(project_path: String, paper_id: String) -> AppResult<(
 #[tauri::command]
 pub async fn extract_pdf_text(project_path: String, paper_id: String) -> AppResult<String> {
     let project = project_service::open_project(&project_path)?;
-    let _paper = project
+    let paper = project
         .papers
         .iter()
         .find(|p| p.id == paper_id)
         .ok_or_else(|| AppError::FileNotFound(paper_id.clone()))?;
 
-    // Mock: return placeholder text for MVP
-    Ok(format!(
-        "[Mock PDF text for paper {}] This is placeholder text extracted from the PDF. \
-        Real PDF text extraction will be implemented in a later phase.",
-        paper_id
-    ))
+    let pdf_path = std::path::Path::new(&project_path)
+        .join("papers")
+        .join(&paper.file_path);
+
+    crate::services::pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path).await
 }
 
 #[tauri::command]

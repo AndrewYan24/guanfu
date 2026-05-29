@@ -1,4 +1,4 @@
-use crate::errors::AppResult;
+use crate::errors::{self as app_err, AppResult};
 use crate::http_server;
 use crate::models::{AiSettings, ExtractedMetadata, Insight, RelationRecommendation};
 use crate::services::{ai_manager, pdf_text_extractor, project_service};
@@ -24,7 +24,7 @@ pub async fn ai_parse_pdf(
         .join("papers")
         .join(&paper.file_path);
 
-    let settings = state.ai_settings.lock().unwrap().clone();
+    let settings = app_err::lock_mutex(&state.ai_settings)?.clone();
 
     // Step 1: Extract text from PDF (with automatic OCR fallback for scanned PDFs)
     let text = match settings.ocr_method {
@@ -104,7 +104,7 @@ pub async fn ai_parse_pdfs_batch(
     paper_ids: Vec<String>,
 ) -> AppResult<std::collections::HashMap<String, ExtractedMetadata>> {
     let mut project = project_service::open_project(&project_path)?;
-    let settings = state.ai_settings.lock().unwrap().clone();
+    let settings = app_err::lock_mutex(&state.ai_settings)?.clone();
 
     let concurrency = settings
         .advanced
@@ -126,6 +126,11 @@ pub async fn ai_parse_pdfs_batch(
     }
 
     let total = work_items.len();
+    let retry_count = settings
+        .advanced
+        .as_ref()
+        .map(|a| a.retry_count as usize)
+        .unwrap_or(1);
     let sem = Arc::new(tokio::sync::Semaphore::new(concurrency));
     let mut handles = Vec::new();
 
@@ -133,7 +138,7 @@ pub async fn ai_parse_pdfs_batch(
         let sem = sem.clone();
         let s = settings.clone();
         handles.push(tokio::spawn(async move {
-            let _permit = sem.acquire().await.unwrap();
+            let _permit = sem.acquire().await.expect("semaphore closed");
             let text = pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
                 .await
                 .unwrap_or_default();
@@ -142,16 +147,29 @@ pub async fn ai_parse_pdfs_batch(
             } else {
                 text
             };
-            let result = ai_manager::parse_text(&text, &s).await;
-            (paper_id, result)
+
+            // Retry loop with exponential backoff
+            let mut last_err = None;
+            for attempt in 0..=retry_count {
+                if attempt > 0 {
+                    let delay_ms = 1000u64 * (1 << (attempt - 1).min(3)); // 1s, 2s, 4s max
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                }
+                match ai_manager::parse_text(&text, &s).await {
+                    Ok(m) => return (paper_id, Ok(m)),
+                    Err(e) => last_err = Some(e),
+                }
+            }
+            (paper_id, Err(last_err.unwrap()))
         }));
     }
 
     let mut results = std::collections::HashMap::new();
     let mut done_count = 0usize;
+    let mut failed_ids: Vec<String> = Vec::new();
     for h in handles {
         if let Ok((paper_id, result)) = h.await {
-            match result {
+            let (success, error_msg) = match result {
                 Ok(metadata) => {
                     // Update project in-memory
                     if let Some(paper) = project.papers.iter_mut().find(|p| p.id == paper_id) {
@@ -169,18 +187,25 @@ pub async fn ai_parse_pdfs_batch(
                         }
                         paper.updated_at = chrono::Utc::now().to_rfc3339();
                     }
-                    results.insert(paper_id, metadata);
+                    results.insert(paper_id.clone(), metadata);
+                    (true, None)
                 }
                 Err(e) => {
-                    eprintln!("[ai_parse_pdfs_batch] paper {} failed: {}", paper_id, e);
+                    let msg = e.to_string();
+                    eprintln!("[ai_parse_pdfs_batch] paper {} failed: {}", paper_id, msg);
+                    failed_ids.push(paper_id.clone());
+                    (false, Some(msg))
                 }
-            }
+            };
+            done_count += 1;
+            let _ = app.emit("parse_progress", serde_json::json!({
+                "paperId": paper_id,
+                "success": success,
+                "error": error_msg,
+                "done": done_count,
+                "total": total,
+            }));
         }
-        done_count += 1;
-        let _ = app.emit("parse_progress", serde_json::json!({
-            "done": done_count,
-            "total": total,
-        }));
     }
 
     // Save once at the end
@@ -209,7 +234,7 @@ pub async fn ai_recommend_relations(
         return Ok(vec![]);
     }
 
-    let settings = state.ai_settings.lock().unwrap().clone();
+    let settings = app_err::lock_mutex(&state.ai_settings)?.clone();
 
     if let Some(ref ids) = new_paper_ids {
         // Only find relations involving new papers
@@ -231,7 +256,7 @@ pub async fn ai_generate_insights(
     project_path: String,
 ) -> AppResult<Vec<Insight>> {
     let project = project_service::open_project(&project_path)?;
-    let settings = state.ai_settings.lock().unwrap().clone();
+    let settings = app_err::lock_mutex(&state.ai_settings)?.clone();
     ai_manager::generate_insights(&project, &settings).await
 }
 
@@ -242,7 +267,7 @@ pub async fn test_ai_connection(settings: AiSettings) -> AppResult<bool> {
 
 #[tauri::command]
 pub async fn test_ai_connection_stored(state: State<'_, AppState>) -> AppResult<bool> {
-    let settings = state.ai_settings.lock().unwrap().clone();
+    let settings = app_err::lock_mutex(&state.ai_settings)?.clone();
     ai_manager::test_connection(&settings).await
 }
 
@@ -251,7 +276,7 @@ pub async fn save_ai_settings(
     state: State<'_, AppState>,
     settings: AiSettings,
 ) -> AppResult<()> {
-    let old = state.ai_settings.lock().unwrap().clone();
+    let old = app_err::lock_mutex(&state.ai_settings)?.clone();
     let mut merged = settings.clone();
 
     // Preserve API keys if new ones are empty
@@ -289,7 +314,7 @@ pub async fn save_ai_settings(
         merged.default_project_dir = old.default_project_dir;
     }
 
-    *state.ai_settings.lock().unwrap() = merged.clone();
+    *app_err::lock_mutex(&state.ai_settings)? = merged.clone();
     state::persist_settings(&merged);
     Ok(())
 }
@@ -298,7 +323,7 @@ pub async fn save_ai_settings(
 pub async fn get_ai_settings_masked(
     state: State<'_, AppState>,
 ) -> AppResult<crate::models::MaskedAiSettings> {
-    let s = state.ai_settings.lock().unwrap();
+    let s = app_err::lock_mutex(&state.ai_settings)?;
     Ok(crate::models::MaskedAiSettings {
         openai_compatible: s.openai_compatible.as_ref().map(|c| c.to_masked()),
         anthropic: s.anthropic.as_ref().map(|c| c.to_masked()),
@@ -323,12 +348,12 @@ pub async fn toggle_http_server(
     state: State<'_, AppState>,
     enabled: bool,
 ) -> AppResult<bool> {
-    let mut settings = state.ai_settings.lock().unwrap().clone();
+    let mut settings = app_err::lock_mutex(&state.ai_settings)?.clone();
     settings.http_api_enabled = enabled;
 
     if enabled {
         // Stop existing server if running
-        let mut handle = state.http_server_handle.lock().unwrap();
+        let mut handle = app_err::lock_mutex(&state.http_server_handle)?;
         if let Some(mut h) = handle.take() {
             http_server::stop_http_server(&mut h);
         }
@@ -339,13 +364,16 @@ pub async fn toggle_http_server(
             http_server_handle: std::sync::Mutex::new(None),
         });
         // Share the actual ai_settings from the running state
-        *shared.ai_settings.lock().unwrap() = state.ai_settings.lock().unwrap().clone();
+        *app_err::lock_mutex(&shared.ai_settings)? = app_err::lock_mutex(&state.ai_settings)?.clone();
 
         match http_server::start_http_server(shared, settings.http_api_port) {
             Ok(h) => {
                 *handle = Some(h);
-                *state.ai_settings.lock().unwrap() = settings;
-                state::persist_settings(&state.ai_settings.lock().unwrap());
+                {
+                    let mut s = app_err::lock_mutex(&state.ai_settings)?;
+                    *s = settings;
+                    state::persist_settings(&s);
+                }
                 Ok(true)
             }
             Err(e) => Err(crate::errors::AppError::Unknown(format!(
@@ -355,12 +383,15 @@ pub async fn toggle_http_server(
         }
     } else {
         // Stop server
-        let mut handle = state.http_server_handle.lock().unwrap();
+        let mut handle = app_err::lock_mutex(&state.http_server_handle)?;
         if let Some(mut h) = handle.take() {
             http_server::stop_http_server(&mut h);
         }
-        *state.ai_settings.lock().unwrap() = settings;
-        state::persist_settings(&state.ai_settings.lock().unwrap());
+        {
+            let mut s = app_err::lock_mutex(&state.ai_settings)?;
+            *s = settings;
+            state::persist_settings(&s);
+        }
         Ok(false)
     }
 }
@@ -369,6 +400,6 @@ pub async fn toggle_http_server(
 pub async fn get_http_server_status(
     state: State<'_, AppState>,
 ) -> AppResult<(bool, u16)> {
-    let settings = state.ai_settings.lock().unwrap();
+    let settings = app_err::lock_mutex(&state.ai_settings)?;
     Ok((settings.http_api_enabled, settings.http_api_port))
 }

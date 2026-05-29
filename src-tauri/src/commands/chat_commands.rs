@@ -1,4 +1,4 @@
-use crate::errors::{AppError, AppResult};
+use crate::errors::{self as app_err, AppError, AppResult};
 use crate::models::{ChatMessage, ChatSource, EmbeddingChunk, EmbeddingStore};
 use crate::services::{embedding_service, project_service};
 use crate::state::AppState;
@@ -11,7 +11,7 @@ pub async fn chat_build_embeddings(
     project_path: String,
 ) -> AppResult<usize> {
     let project = project_service::open_project(&project_path)?;
-    let settings = state.ai_settings.lock().unwrap().clone();
+    let settings = app_err::lock_mutex(&state.ai_settings)?.clone();
 
     let papers_with_meta: Vec<_> = project
         .papers
@@ -77,7 +77,7 @@ pub async fn chat_ask(
     question: String,
 ) -> AppResult<ChatMessage> {
     let project = project_service::open_project(&project_path)?;
-    let settings = state.ai_settings.lock().unwrap().clone();
+    let settings = app_err::lock_mutex(&state.ai_settings)?.clone();
 
     // Load embeddings
     let store = load_embeddings(&project_path)?;
@@ -174,7 +174,7 @@ pub async fn chat_ask_stream(
     question: String,
 ) -> AppResult<ChatMessage> {
     let project = project_service::open_project(&project_path)?;
-    let settings = state.ai_settings.lock().unwrap().clone();
+    let settings = app_err::lock_mutex(&state.ai_settings)?.clone();
 
     // Load embeddings
     let store = load_embeddings(&project_path)?;

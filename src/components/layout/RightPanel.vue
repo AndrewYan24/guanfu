@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
+
 defineProps<{
   open: boolean;
 }>();
@@ -11,7 +15,7 @@ defineEmits<{
 <template>
   <aside v-if="open" class="right-panel">
     <div class="panel-header">
-      <span class="panel-title">属性</span>
+      <span class="panel-title">{{ t('graph.properties') }}</span>
       <button class="close-btn" @click="$emit('close')">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <line x1="2" y1="2" x2="12" y2="12" stroke="currentColor" stroke-width="1.5" />
@@ -21,7 +25,7 @@ defineEmits<{
     </div>
     <div class="panel-content">
       <slot>
-        <p class="empty-text">选择节点或文献查看详情</p>
+        <p class="empty-text">{{ t('graph.selectNode') }}</p>
       </slot>
     </div>
   </aside>

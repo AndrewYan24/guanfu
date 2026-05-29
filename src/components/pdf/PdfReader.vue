@@ -100,14 +100,19 @@ function onScroll() {
 
 function handleZoomIn() {
   scale.value = Math.min(scale.value + 0.2, 3);
+  if (currentPaperId) paperStore.savePdfZoom(currentPaperId, scale.value);
 }
 
 function handleZoomOut() {
   scale.value = Math.max(scale.value - 0.2, 0.5);
+  if (currentPaperId) paperStore.savePdfZoom(currentPaperId, scale.value);
 }
 
 onMounted(() => {
   currentPaperId = paperStore.selectedPaperId;
+  if (currentPaperId) {
+    scale.value = paperStore.getPdfZoom(currentPaperId);
+  }
   if (props.data) loadPdf();
 });
 
@@ -124,6 +129,9 @@ watch(() => paperStore.selectedPaperId, (newId, oldId) => {
     saveCurrentScroll();
   }
   currentPaperId = newId;
+  if (newId) {
+    scale.value = paperStore.getPdfZoom(newId);
+  }
 }, { flush: 'pre' });
 </script>
 
@@ -144,20 +152,20 @@ watch(() => paperStore.selectedPaperId, (newId, oldId) => {
     </div>
 
     <div v-if="numPages || data" class="pdf-controls">
-      <button class="ctrl-btn" @click="handleZoomIn" title="放大">
+      <button class="ctrl-btn" @click="handleZoomIn" :title="t('pdf.zoomIn')">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <line x1="7" y1="3" x2="7" y2="11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
           <line x1="3" y1="7" x2="11" y2="7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
         </svg>
       </button>
       <span class="zoom-label">{{ Math.round(scale * 100) }}%</span>
-      <button class="ctrl-btn" @click="handleZoomOut" title="缩小">
+      <button class="ctrl-btn" @click="handleZoomOut" :title="t('pdf.zoomOut')">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <line x1="3" y1="7" x2="11" y2="7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
         </svg>
       </button>
       <div class="ctrl-divider" />
-      <span v-if="numPages" class="page-info">{{ numPages }} 页</span>
+      <span v-if="numPages" class="page-info">{{ t('pdf.pageCount', { count: numPages }) }}</span>
     </div>
   </div>
 </template>

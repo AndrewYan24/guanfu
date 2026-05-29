@@ -21,6 +21,7 @@ const editingName = ref('');
 const nameInputRef = ref<HTMLInputElement | null>(null);
 const isDragging = ref(false);
 const pendingImportPaths = ref<string[]>([]);
+let notesSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
 function startEditName() {
   editingName.value = projectStore.currentProject?.name || '';
@@ -164,6 +165,15 @@ async function exportCsv() {
   if (!filePath) return;
 
   await writeTextFile(filePath, csv);
+}
+
+function handleNotesInput() {
+  if (notesSaveTimer) clearTimeout(notesSaveTimer);
+  notesSaveTimer = setTimeout(() => {
+    if (paperStore.selectedPaper) {
+      paperStore.updatePaper(paperStore.selectedPaper);
+    }
+  }, 1000);
 }
 
 function handleDragOver(e: DragEvent) {
@@ -345,6 +355,7 @@ watch(() => projectStore.hasProject, async (hasProject) => {
                 v-model="paperStore.selectedPaper.notes"
                 class="notes-textarea"
                 :placeholder="t('metadata.notes') + '...'"
+                @input="handleNotesInput"
                 @blur="paperStore.updatePaper(paperStore.selectedPaper)"
               />
             </div>

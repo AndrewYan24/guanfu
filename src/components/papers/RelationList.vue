@@ -122,6 +122,23 @@ async function handleApplyRecommendation(rec: typeof recommendations.value[0]) {
   recommendations.value = recommendations.value.filter((r) => r !== rec);
 }
 
+async function handleApplyAll() {
+  const now = new Date().toISOString();
+  const toAdd: Relation[] = recommendations.value.map((rec) => ({
+    id: crypto.randomUUID(),
+    sourceId: rec.sourceId,
+    targetId: rec.targetId,
+    type: rec.type,
+    evidence: rec.evidence,
+    isManual: false,
+    confidence: rec.confidence,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  await graphStore.addRelationsBatch(toAdd);
+  recommendations.value = [];
+}
+
 function selectTarget(id: string) {
   targetId.value = id;
   searchQuery.value = '';
@@ -131,7 +148,7 @@ function selectTarget(id: string) {
 <template>
   <div class="relation-list">
     <div class="relation-header">
-      <span class="relation-count">{{ relatedRelations.length }} 条关系</span>
+      <span class="relation-count">{{ t('graph.relationCount', { count: relatedRelations.length }) }}</span>
       <div class="header-actions">
         <button class="action-btn" @click="showAddForm = !showAddForm">
           {{ showAddForm ? t('common.cancel') : t('graph.addRelation') }}
@@ -141,7 +158,7 @@ function selectTarget(id: string) {
           :disabled="isRecommending"
           @click="handleRecommendRelations"
         >
-          {{ isRecommending ? '推荐中...' : '重新推荐' }}
+          {{ isRecommending ? t('graph.recommendLoading') : t('graph.recommendAgain') }}
         </button>
       </div>
     </div>
@@ -198,7 +215,12 @@ function selectTarget(id: string) {
 
     <!-- AI recommendations -->
     <div v-if="recommendations.length" class="recommendations">
-      <div class="section-label">{{ t('graph.recommendedRelations') }}</div>
+      <div class="section-label">
+        {{ t('graph.recommendedRelations') }}
+        <button v-if="recommendations.length > 1" class="apply-btn apply-all" @click="handleApplyAll">
+          {{ t('graph.applyAll') }}
+        </button>
+      </div>
       <div
         v-for="(rec, i) in recommendations"
         :key="i"
@@ -215,7 +237,7 @@ function selectTarget(id: string) {
         </div>
         <p class="rec-evidence">{{ rec.evidence }}</p>
         <button class="apply-btn" @click="handleApplyRecommendation(rec)">
-          应用
+          {{ t('graph.applyRelation') }}
         </button>
       </div>
     </div>
@@ -429,6 +451,14 @@ function selectTarget(id: string) {
   font-size: 12px;
   color: $color-text-disabled;
   margin-bottom: $spacing-sm;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.apply-all {
+  font-weight: 500;
+  color: $color-text-primary;
 }
 
 .recommendation {

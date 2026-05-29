@@ -69,7 +69,8 @@ pub async fn ai_parse_pdf(
     let metadata = ai_manager::parse_text(&text, &settings).await?;
 
     // Step 3: Update paper's basic fields from AI result
-    let paper_idx = project.papers.iter().position(|p| p.id == paper_id).unwrap();
+    let paper_idx = project.papers.iter().position(|p| p.id == paper_id)
+        .ok_or_else(|| crate::errors::AppError::FileNotFound(paper_id.clone()))?;
     if let Some(ref title) = metadata.title {
         if !title.is_empty() {
             project.papers[paper_idx].title = title.clone();

@@ -17,7 +17,7 @@ const paperStore = usePaperStore();
 const graphStore = useGraphStore();
 const projectStore = useProjectStore();
 const settingsStore = useSettingsStore();
-const { locale } = useI18n();
+const { t, locale } = useI18n();
 
 const containerRef = ref<HTMLDivElement>();
 const cy = shallowRef<Core>();
@@ -488,7 +488,7 @@ defineExpose({ runLayout, exportPng, exportSvg });
   <div class="graph-canvas-wrapper">
     <div ref="containerRef" class="graph-canvas" />
     <div class="zoom-controls">
-      <button class="zoom-btn" @click="zoomOut" title="缩小">−</button>
+      <button class="zoom-btn" @click="zoomOut" :title="t('graph.zoomOut')">−</button>
       <input
         type="range"
         class="zoom-slider"
@@ -498,14 +498,14 @@ defineExpose({ runLayout, exportPng, exportSvg });
         :value="currentZoom"
         @input="onZoomSlider"
       />
-      <button class="zoom-btn" @click="zoomIn" title="放大">+</button>
+      <button class="zoom-btn" @click="zoomIn" :title="t('graph.zoomIn')">+</button>
       <span class="zoom-label">{{ zoomPercent }}%</span>
-      <button class="zoom-btn fit-btn" @click="fitToScreen" title="适应画布">
+      <button class="zoom-btn fit-btn" @click="fitToScreen" :title="t('graph.fitCanvas')">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M2 5V2h3M9 2h3v3M12 9v3H9M5 12H2V9" stroke="currentColor" stroke-width="1.2"/>
         </svg>
       </button>
-      <button class="zoom-btn layout-btn" @click="runLayout" title="自动整理">
+      <button class="zoom-btn layout-btn" @click="runLayout" :title="t('graph.autoArrange')">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <circle cx="4" cy="4" r="1.8" stroke="currentColor" stroke-width="1.2" fill="none"/>
           <circle cx="10" cy="4" r="1.8" stroke="currentColor" stroke-width="1.2" fill="none"/>

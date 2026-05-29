@@ -112,8 +112,8 @@ async function handleParse() {
 
     parseStatus.value = t('common.saved');
     hasChanges.value = false;
-  } catch {
-    parseStatus.value = t('common.saveFailed');
+  } catch (e) {
+    parseStatus.value = e instanceof Error ? e.message : t('common.saveFailed');
   } finally {
     isParsing.value = false;
   }

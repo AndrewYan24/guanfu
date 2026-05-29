@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { Paper } from '@/types';
 import * as paperApi from '@/api/paperApi';
@@ -27,14 +27,19 @@ export const usePaperStore = defineStore('paper', () => {
   const parsingPaperIds = ref(new Set<string>());
   const pendingPaperIds = ref(new Set<string>());
   const pdfScrollPositions = ref<Record<string, number>>({});
+  const pdfZoomLevels = ref<Record<string, number>>({});
   const parseProgress = ref<{ done: number; total: number } | null>(null);
   const parseErrors = ref<Array<{ paperId: string; paperTitle: string; error: string }>>([]);
 
   // Search / sort / filter state
   const searchQuery = ref('');
-  const sortField = ref<SortField>('added');
-  const sortDir = ref<SortDir>('desc');
+  const sortField = ref<SortField>((localStorage.getItem('gf_sort_field') as SortField) || 'added');
+  const sortDir = ref<SortDir>((localStorage.getItem('gf_sort_dir') as SortDir) || 'desc');
   const activeTag = ref<string | null>(null);
+
+  // Persist sort preferences
+  watch(sortField, (v) => localStorage.setItem('gf_sort_field', v));
+  watch(sortDir, (v) => localStorage.setItem('gf_sort_dir', v));
 
   const selectedPaper = computed(() =>
     papers.value.find((p) => p.id === selectedPaperId.value) ?? null
@@ -290,6 +295,14 @@ export const usePaperStore = defineStore('paper', () => {
     return pdfScrollPositions.value[paperId] ?? 0;
   }
 
+  function savePdfZoom(paperId: string, zoom: number) {
+    pdfZoomLevels.value[paperId] = zoom;
+  }
+
+  function getPdfZoom(paperId: string): number {
+    return pdfZoomLevels.value[paperId] ?? 1.2;
+  }
+
   async function reparsePaper(paperId: string) {
     const projectStore = useProjectStore();
     if (!projectStore.projectPath) return;
@@ -354,5 +367,7 @@ export const usePaperStore = defineStore('paper', () => {
     reparsePaper,
     savePdfScrollPosition,
     getPdfScrollPosition,
+    savePdfZoom,
+    getPdfZoom,
   };
 });

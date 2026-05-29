@@ -136,6 +136,12 @@ async function handleDeleteRelation(id: string) {
   await graphStore.deleteRelation(id);
   selectedEdgeId.value = '';
 }
+
+async function handleDeletePaper(id: string) {
+  if (!window.confirm(t('library.deleteConfirm'))) return;
+  await paperStore.deletePaper(id);
+  selectedNodeId.value = '';
+}
 </script>
 
 <template>
@@ -182,6 +188,9 @@ async function handleDeleteRelation(id: string) {
           <div class="detail-actions">
             <button class="detail-action-btn" @click="openAddDialog">
               {{ t('graph.addRelation') }}
+            </button>
+            <button class="detail-action-btn danger" @click="handleDeletePaper(selectedNodeId)">
+              {{ t('library.deletePaper') }}
             </button>
           </div>
         </div>
@@ -453,6 +462,11 @@ async function handleDeleteRelation(id: string) {
   &:hover {
     color: $color-text-primary;
     background: $color-panel;
+  }
+
+  &.danger:hover {
+    color: var(--color-error);
+    background: var(--hover-bg);
   }
 }
 

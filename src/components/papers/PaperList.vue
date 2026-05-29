@@ -2,9 +2,11 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { usePaperStore } from '@/stores/paperStore';
+import { useProjectStore } from '@/stores/projectStore';
 
 const { t } = useI18n();
 const paperStore = usePaperStore();
+const projectStore = useProjectStore();
 
 const papers = computed(() => paperStore.filteredPapers);
 
@@ -108,7 +110,6 @@ async function handleReparse() {
   const id = contextMenuPaperId.value;
   closeContextMenu();
   if (!id) return;
-  const projectStore = (await import('@/stores/projectStore')).useProjectStore();
   if (!projectStore.projectPath) return;
   await paperStore.reparsePaper(id);
 }
@@ -256,7 +257,7 @@ onUnmounted(() => {
     <!-- Parse errors -->
     <div v-if="paperStore.parseErrors.length > 0" class="parse-errors">
       <div class="parse-errors-header">
-        <span>{{ paperStore.parseErrors.length }} 篇解析失败</span>
+        <span>{{ t('metadata.parseFailed', { count: paperStore.parseErrors.length }) }}</span>
         <button class="parse-errors-dismiss" @click="paperStore.clearParseErrors()">×</button>
       </div>
       <div v-for="err in paperStore.parseErrors" :key="err.paperId" class="parse-error-item">

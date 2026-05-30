@@ -68,7 +68,7 @@ async function loadPdfData() {
     pdfData.value = new Uint8Array(bytes);
   } catch (e) {
     pdfData.value = null;
-    pdfError.value = e instanceof Error ? e.message : '无法读取 PDF 文件';
+    pdfError.value = e instanceof Error ? e.message : t('common.saveFailed');
   } finally {
     pdfLoading.value = false;
   }
@@ -188,7 +188,18 @@ function handleDragLeave() {
 function handleDrop(e: DragEvent) {
   e.preventDefault();
   isDragging.value = false;
-  openImportDialog();
+  const files = e.dataTransfer?.files;
+  if (!files || files.length === 0) return;
+  const paths: string[] = [];
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    if (f.name.toLowerCase().endsWith('.pdf')) {
+      paths.push((f as any).path || f.name);
+    }
+  }
+  if (paths.length > 0) {
+    handleImportFiles(paths);
+  }
 }
 
 function handleDropEmpty(e: DragEvent) {

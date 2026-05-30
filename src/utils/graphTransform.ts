@@ -1,4 +1,5 @@
 import type { Paper, Relation } from '@/types';
+import { relationLabels } from '@/types/relation';
 import type { ElementDefinition } from 'cytoscape';
 
 export function papersToElements(
@@ -73,14 +74,7 @@ export function papersToElements(
 }
 
 function relationTypeToLabel(type: string): string {
-  const labels: Record<string, string> = {
-    supports: '支持',
-    opposes: '反对',
-    modifies: '修正',
-    adopts: '继承',
-    reinterprets: '再诠释',
-  };
-  return labels[type] ?? type;
+  return relationLabels[type as keyof typeof relationLabels] ?? type;
 }
 
 function cssVar(name: string, fallback: string): string {

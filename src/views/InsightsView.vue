@@ -84,6 +84,13 @@ function typeLabel(type: string): string {
     <div v-else class="insights-content">
       <div class="insights-header">
         <h3>{{ t('insights.title') }}</h3>
+        <button
+          class="rerun-btn"
+          :disabled="insightStore.isLoading"
+          @click="triggerAutoRun()"
+        >
+          {{ insightStore.isLoading ? t('insights.analyzing') : t('graph.recommendAgain') }}
+        </button>
       </div>
 
       <div class="insights-list">
@@ -139,6 +146,28 @@ function typeLabel(type: string): string {
   h3 {
     font-size: 16px;
     font-weight: 500;
+  }
+}
+
+.rerun-btn {
+  padding: 4px 12px;
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
+  background: $color-bg;
+  color: $color-text-secondary;
+  font-size: 12px;
+  font-family: $font-family;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: $color-panel;
+    border-color: $color-node-border;
+    color: $color-text-primary;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 }
 

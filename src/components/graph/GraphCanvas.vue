@@ -478,7 +478,32 @@ function triggerDownload(dataUrl: string) {
 }
 
 function exportSvg() {
-  exportPng();
+  if (!cy.value || cy.value.nodes().length === 0) return;
+
+  const bb = cy.value.elements().boundingBox({});
+  const padding = 60;
+  const w = bb.w + padding * 2;
+  const h = bb.h + padding * 2;
+
+  // Get high-res PNG from Cytoscape
+  const pngDataUrl = cy.value.png({ full: true, scale: 2, bg: '#FFFFFF', padding } as any);
+
+  // Wrap in SVG with embedded image
+  const svgContent = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+  width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+  <image xlink:href="${pngDataUrl}" width="${w}" height="${h}"/>
+</svg>`;
+
+  const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  const appName = locale.value === 'tra' ? '觀復' : 'Guanfu';
+  const projectName = projectStore.currentProject?.name || 'graph';
+  link.download = `${appName}-${projectName}.svg`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 defineExpose({ runLayout, exportPng, exportSvg });

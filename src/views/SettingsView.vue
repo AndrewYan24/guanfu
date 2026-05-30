@@ -494,7 +494,7 @@ function scrollTo(id: string) {
             />
           </div>
           <div class="field">
-            <label>API Base</label>
+            <label>{{ t('settings.baseUrl') }}</label>
             <input
               type="text"
               v-model="mineru.apiBase"

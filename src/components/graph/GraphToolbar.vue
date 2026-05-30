@@ -50,6 +50,11 @@ const emit = defineEmits<{
           <path d="M2 10v2h10v-2M7 2v7M4 6l3 3 3-3" stroke="currentColor" stroke-width="1.2"/>
         </svg>
       </button>
+      <button class="toolbar-btn" @click="emit('exportSvg')" title="SVG">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <text x="3" y="11" font-size="9" font-weight="600" fill="currentColor" font-family="sans-serif">S</text>
+        </svg>
+      </button>
     </div>
   </div>
 </template>

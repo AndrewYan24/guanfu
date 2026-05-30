@@ -6,7 +6,7 @@ import { useChatStore } from '@/stores/chatStore';
 import { useI18n } from 'vue-i18n';
 import { marked } from 'marked';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const projectStore = useProjectStore();
 const chatStore = useChatStore();
 
@@ -108,7 +108,7 @@ function handleClear() {
 function formatTime(iso: string): string {
   try {
     const d = new Date(iso);
-    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleTimeString(locale.value, { hour: '2-digit', minute: '2-digit' });
   } catch {
     return '';
   }

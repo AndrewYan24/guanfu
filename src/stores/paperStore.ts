@@ -265,6 +265,10 @@ export const usePaperStore = defineStore('paper', () => {
       selectedPaperId.value = null;
     }
 
+    // Clean up per-paper state
+    delete pdfScrollPositions.value[paperId];
+    delete pdfZoomLevels.value[paperId];
+
     // Remove relations involving the deleted paper (backend does the same)
     const graphStore = useGraphStore();
     graphStore.removeRelationsForPaper(paperId);

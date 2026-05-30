@@ -3,7 +3,6 @@ import { ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { open } from '@tauri-apps/plugin-dialog';
 import Sidebar from './Sidebar.vue';
-import RightPanel from './RightPanel.vue';
 import { useProjectStore } from '@/stores/projectStore';
 import { usePaperStore } from '@/stores/paperStore';
 import { useGraphStore } from '@/stores/graphStore';
@@ -16,7 +15,6 @@ const paperStore = usePaperStore();
 const graphStore = useGraphStore();
 const settingsStore = useSettingsStore();
 const sidebarExpanded = ref(false);
-const rightPanelOpen = ref(false);
 
 const newProjectName = ref('');
 const selectedDir = ref('');
@@ -82,7 +80,6 @@ function closeDialog() {
       </div>
       <router-view v-else />
     </main>
-    <RightPanel :open="rightPanelOpen" @close="rightPanelOpen = false" />
 
     <!-- Global create project dialog -->
     <div v-if="projectStore.showCreateDialog" class="dialog-overlay" @click.self="closeDialog">

@@ -109,6 +109,7 @@ export const useGraphStore = defineStore('graph', () => {
     relations.value = relations.value.filter(
       (r) => r.sourceId !== paperId && r.targetId !== paperId
     );
+    delete graphLayout.value.positions[paperId];
     const ps = useProjectStore();
     if (ps.currentProject) {
       ps.currentProject.relations = relations.value;

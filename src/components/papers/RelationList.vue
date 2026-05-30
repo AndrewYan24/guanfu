@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import type { Paper, Relation, RelationType } from '@/types';
-import { relationLabels } from '@/types/relation';
+import { relationTypes } from '@/types/relation';
 import { useGraphStore } from '@/stores/graphStore';
 import { usePaperStore } from '@/stores/paperStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -191,8 +191,8 @@ function selectTarget(id: string) {
       <div class="form-field">
         <label>{{ t('graph.relationType') }}</label>
         <select v-model="relationType" class="form-select">
-          <option v-for="(label, key) in relationLabels" :key="key" :value="key">
-            {{ label }}
+          <option v-for="rt in relationTypes" :key="rt" :value="rt">
+            {{ t('relations.' + rt) }}
           </option>
         </select>
       </div>
@@ -227,7 +227,7 @@ function selectTarget(id: string) {
         class="recommendation"
       >
         <div class="rec-info">
-          <span class="rec-type">{{ relationLabels[rec.type] }}</span>
+          <span class="rec-type">{{ t('relations.' + rec.type) }}</span>
           <span class="rec-target">
             → {{ getPaperTitle(rec.targetId) }}
           </span>
@@ -257,7 +257,7 @@ function selectTarget(id: string) {
         <div class="relation-main">
           <span class="relation-type" :class="relation.type">
             {{ isSource(relation) ? '→' : '←' }}
-            {{ relationLabels[relation.type] }}
+            {{ t('relations.' + relation.type) }}
           </span>
           <span class="relation-target">
             {{ getPaperTitle(getOtherPaperId(relation)) }}

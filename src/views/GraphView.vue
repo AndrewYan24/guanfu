@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useProjectStore } from '@/stores/projectStore';
 import { useGraphStore } from '@/stores/graphStore';
 import { usePaperStore } from '@/stores/paperStore';
-import { relationLabels } from '@/types/relation';
+import { relationTypes } from '@/types/relation';
 import type { RelationType } from '@/types/relation';
 import type { Relation } from '@/types';
 import GraphCanvas from '@/components/graph/GraphCanvas.vue';
@@ -27,8 +27,6 @@ const newType = ref<RelationType>('supports');
 const newEvidence = ref('');
 const sourceSearch = ref('');
 const targetSearch = ref('');
-
-const relationTypes: RelationType[] = ['supports', 'opposes', 'modifies', 'adopts', 'reinterprets'];
 
 const filteredSourcePapers = computed(() => {
   const q = sourceSearch.value.toLowerCase();
@@ -123,7 +121,7 @@ function getPaperAuthor(id: string) {
 }
 
 function getRelationLabel(type: string) {
-  return relationLabels[type as RelationType] ?? type;
+  return t('relations.' + type);
 }
 
 function closeDetail() {

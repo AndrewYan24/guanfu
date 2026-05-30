@@ -1,10 +1,10 @@
 import type { Paper, Relation } from '@/types';
-import { relationLabels } from '@/types/relation';
 import type { ElementDefinition } from 'cytoscape';
 
 export function papersToElements(
   papers: Paper[],
-  relations: Relation[]
+  relations: Relation[],
+  labels?: Record<string, string>
 ): ElementDefinition[] {
   const elements: ElementDefinition[] = [];
 
@@ -64,7 +64,7 @@ export function papersToElements(
         target: relation.targetId,
         type: relation.type,
         evidence: relation.evidence,
-        label: relationTypeToLabel(relation.type),
+        label: relationTypeToLabel(relation.type, labels),
       },
       classes: `relation-${relation.type}`,
     });
@@ -73,8 +73,8 @@ export function papersToElements(
   return elements;
 }
 
-function relationTypeToLabel(type: string): string {
-  return relationLabels[type as keyof typeof relationLabels] ?? type;
+function relationTypeToLabel(type: string, labels?: Record<string, string>): string {
+  return labels?.[type] ?? type;
 }
 
 function cssVar(name: string, fallback: string): string {

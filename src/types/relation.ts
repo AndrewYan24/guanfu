@@ -5,13 +5,7 @@ export type RelationType =
   | 'adopts'
   | 'reinterprets';
 
-export const relationLabels: Record<RelationType, string> = {
-  supports: '支持',
-  opposes: '反对',
-  modifies: '修正 / 限定',
-  adopts: '继承 / 采用',
-  reinterprets: '再诠释',
-};
+export const relationTypes: RelationType[] = ['supports', 'opposes', 'modifies', 'adopts', 'reinterprets'];
 
 export interface Relation {
   id: string;

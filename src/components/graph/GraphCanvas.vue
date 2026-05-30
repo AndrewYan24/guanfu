@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, watch, shallowRef, computed } from 'vue';
 import cytoscape, { Core, NodeSingular, EdgeSingular, ElementDefinition } from 'cytoscape';
 import { useI18n } from 'vue-i18n';
 import { papersToElements, getCytoscapeStyles } from '@/utils/graphTransform';
+import { relationTypes } from '@/types/relation';
 import { usePaperStore } from '@/stores/paperStore';
 import { useGraphStore } from '@/stores/graphStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -27,6 +28,14 @@ const ZOOM_MAX = 3;
 const MIN_NODE_DISTANCE = 120;
 
 const zoomPercent = computed(() => Math.round(currentZoom.value * 100));
+
+const relLabels = computed(() => {
+  const map: Record<string, string> = {};
+  for (const rt of relationTypes) {
+    map[rt] = t('relations.' + rt);
+  }
+  return map;
+});
 
 // --- Layout state machine ---
 let layoutRunning = false;
@@ -98,7 +107,7 @@ function initCytoscape() {
 function syncElements() {
   if (!cy.value) return;
 
-  const elements = papersToElements(paperStore.papers, graphStore.relations);
+  const elements = papersToElements(paperStore.papers, graphStore.relations, relLabels.value);
   const positions = graphStore.graphLayout.positions;
 
   // Separate nodes and edges

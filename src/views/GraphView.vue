@@ -111,7 +111,7 @@ function getSelectedNode() {
 }
 
 function getPaperTitle(id: string) {
-  return paperStore.papers.find((p) => p.id === id)?.title ?? '未知文献';
+  return paperStore.papers.find((p) => p.id === id)?.title ?? t('graph.unknownPaper');
 }
 
 function getPaperAuthor(id: string) {

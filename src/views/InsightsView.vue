@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watch, onMounted, ref } from 'vue';
+import { watch, onMounted, ref, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useProjectStore } from '@/stores/projectStore';
 import { useInsightStore } from '@/stores/insightStore';
@@ -53,6 +53,14 @@ watch(() => graphStore.relations.length, (newVal) => {
   }
 });
 
+// Clear insights when switching projects
+watch(() => projectStore.projectPath, () => {
+  insightStore.clearInsights();
+  prevPaperCount.value = 0;
+  prevRelationCount.value = 0;
+  prevMetadataKey.value = '';
+});
+
 // Watch paper metadata changes — only fire on actual change
 watch(
   () => paperStore.papers.map(p => `${p.id}:${p.metadata ? 'm' : ''}:${p.updatedAt}`).join(','),
@@ -64,15 +72,16 @@ watch(
   }
 );
 
+const typeLabels = computed<Record<string, string>>(() => ({
+  'potential-fault-line': t('insights.potentialFaultLine'),
+  'lack-pluralistic-testing': t('insights.lackPluralisticTesting'),
+  'method-homogeneity': t('insights.methodHomogeneity'),
+  'theoretical-gap': t('insights.theoreticalGap'),
+  'creative-opportunity': t('insights.creativeOpportunity'),
+}));
+
 function typeLabel(type: string): string {
-  const labels: Record<string, string> = {
-    'potential-fault-line': t('insights.potentialFaultLine'),
-    'lack-pluralistic-testing': t('insights.lackPluralisticTesting'),
-    'method-homogeneity': t('insights.methodHomogeneity'),
-    'theoretical-gap': t('insights.theoreticalGap'),
-    'creative-opportunity': t('insights.creativeOpportunity'),
-  };
-  return labels[type] ?? type;
+  return typeLabels.value[type] ?? type;
 }
 </script>
 

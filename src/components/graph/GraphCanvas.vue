@@ -304,6 +304,12 @@ watch(
   () => scheduleSync()
 );
 
+// Re-sync when paper metadata changes (e.g. after AI parse updates title/authors)
+const paperLabelKey = computed(() =>
+  paperStore.papers.map(p => `${p.id}:${p.title}:${p.authors[0] ?? ''}`).join(',')
+);
+watch(paperLabelKey, () => scheduleSync());
+
 // --- Lifecycle ---
 let themeObserver: MutationObserver | null = null;
 

@@ -86,6 +86,7 @@ export default {
     targetPaper: 'Target paper',
     searchPaper: 'Search papers...',
     relationEvidencePlaceholder: 'Describe the relationship between these papers...',
+    unknownPaper: 'Unknown paper',
   },
   relations: {
     supports: 'Supports',

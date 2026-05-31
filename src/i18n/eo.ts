@@ -86,6 +86,7 @@ export default {
     targetPaper: 'Cela artikolo',
     searchPaper: 'Serĉi artikolojn...',
     relationEvidencePlaceholder: 'Priskribu la rilaton inter ĉi tiuj artikoloj...',
+    unknownPaper: 'Nekonata artikolo',
   },
   relations: {
     supports: 'Subtenas',

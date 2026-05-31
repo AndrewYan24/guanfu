@@ -86,6 +86,7 @@ export default {
     targetPaper: '目标文献',
     searchPaper: '搜索文献...',
     relationEvidencePlaceholder: '描述这两篇文献之间的关系...',
+    unknownPaper: '未知文献',
   },
   relations: {
     supports: '支持',

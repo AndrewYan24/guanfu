@@ -84,9 +84,9 @@ watch(
   { immediate: true }
 );
 
-// Reload PDF when re-entering the PDF tab
+// Reload PDF when re-entering the PDF tab (only if not already loaded)
 watch(activeTab, (tab) => {
-  if (tab === 'pdf') {
+  if (tab === 'pdf' && !pdfData.value && paperStore.selectedPaper) {
     loadPdfData();
   }
 });
@@ -142,7 +142,11 @@ async function exportCsv() {
   const papers = paperStore.papers;
   if (papers.length === 0) return;
 
-  const headers = ['Title', 'Authors', 'Year', 'Abstract', 'Research Question', 'Core Claim', 'Methodology', 'Findings', 'Tags', 'Notes'];
+  const headers = [
+    t('metadata.title'), t('metadata.authors'), t('metadata.year'), t('metadata.abstract'),
+    t('metadata.researchQuestion'), t('metadata.coreClaim'), t('metadata.methodology'),
+    t('metadata.findings'), t('metadata.tags'), t('metadata.notes'),
+  ];
   const rows = papers.map(p => [
     escapeCsv(p.title),
     escapeCsv(p.authors.join('; ')),

@@ -86,6 +86,7 @@ export default {
     targetPaper: '目標文獻',
     searchPaper: '搜尋文獻...',
     relationEvidencePlaceholder: '描述這兩篇文獻之間的關係...',
+    unknownPaper: '未知文獻',
   },
   relations: {
     supports: '支援',

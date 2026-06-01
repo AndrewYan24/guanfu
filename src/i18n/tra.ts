@@ -56,6 +56,7 @@ export default {
     tabMetadata: '結構化資料',
     tabNotes: '筆記',
     tabRelations: '關係',
+    unknownPaper: '未知文獻',
   },
   graph: {
     title: '圖譜',

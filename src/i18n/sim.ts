@@ -56,6 +56,7 @@ export default {
     tabMetadata: '结构化数据',
     tabNotes: '笔记',
     tabRelations: '关系',
+    unknownPaper: '未知文献',
   },
   graph: {
     title: '图谱',

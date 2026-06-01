@@ -10,6 +10,7 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tower_http::cors::CorsLayer;
@@ -84,6 +85,22 @@ impl From<AppError> for ApiError {
 
 type ApiResult<T> = Result<T, ApiError>;
 
+/// Validate and canonicalize a project path to prevent path traversal attacks.
+/// Ensures the path resolves to a `.guanfu` directory.
+fn validate_project_path(path: &str) -> Result<String, AppError> {
+    let p = std::path::Path::new(path);
+    // Reject paths with obvious traversal
+    if path.contains('\0') {
+        return Err(AppError::IoError("invalid path: null byte".into()));
+    }
+    let canonical = p.canonicalize()
+        .map_err(|e| AppError::IoError(format!("invalid project path: {}", e)))?;
+    if !canonical.to_string_lossy().ends_with(".guanfu") {
+        return Err(AppError::IoError("path must point to a .guanfu directory".into()));
+    }
+    Ok(canonical.to_string_lossy().to_string())
+}
+
 // ─── Query / Body types ───
 
 #[derive(Deserialize)]
@@ -149,6 +166,33 @@ struct ChatBody {
     locale: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct UpdateRelationBody {
+    #[serde(rename = "projectPath")]
+    project_path: String,
+    relation: Relation,
+}
+
+#[derive(Deserialize)]
+struct BatchRelationsBody {
+    #[serde(rename = "projectPath")]
+    project_path: String,
+    relations: Vec<Relation>,
+}
+
+#[derive(Deserialize)]
+struct BatchAiParseBody {
+    #[serde(rename = "projectPath")]
+    project_path: String,
+    #[serde(rename = "paperIds")]
+    paper_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct SaveProjectBody {
+    project: Project,
+}
+
 // ─── Router ───
 
 pub fn create_router(state: SharedState) -> Router {
@@ -160,23 +204,35 @@ pub fn create_router(state: SharedState) -> Router {
         // Projects
         .route("/api/projects/create", post(create_project))
         .route("/api/projects/open", post(open_project))
+        .route("/api/projects/save", post(save_project_handler))
         .route("/api/projects/recent", get(get_recent_project))
         .route("/api/projects/default-dir", get(get_default_dir))
+        .route("/api/projects/info", get(get_project_info))
         // Papers
         .route("/api/papers/import", post(import_papers))
         .route("/api/papers/list", get(list_papers))
         .route("/api/papers/{paper_id}", delete(delete_paper))
         .route("/api/papers/{paper_id}/update", post(update_paper_handler))
         .route("/api/papers/{paper_id}/ai-parse", post(ai_parse_paper))
+        .route("/api/papers/{paper_id}/extract-text", post(extract_text_handler))
+        .route("/api/papers/batch-ai-parse", post(batch_ai_parse_handler))
         // Relations & Graph
         .route("/api/relations/add", post(add_relation_handler))
+        .route("/api/relations/list", get(list_relations))
+        .route("/api/relations/update", post(update_relation_handler))
+        .route("/api/relations/batch-add", post(batch_add_relations_handler))
         .route("/api/relations/{relation_id}", delete(delete_relation_handler))
         .route("/api/graph/save-layout", post(save_layout_handler))
         // AI
         .route("/api/ai/recommend-relations", post(ai_recommend_relations))
         .route("/api/ai/generate-insights", post(ai_generate_insights))
+        // Insights
+        .route("/api/insights/run", post(run_insights_handler))
+        .route("/api/insights/saved", get(get_saved_insights))
         // Chat
         .route("/api/chat/ask", post(chat_ask))
+        .route("/api/chat/history", get(get_chat_history_handler))
+        .route("/api/chat/build-embeddings", post(build_embeddings_handler))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -271,7 +327,8 @@ async fn ai_parse_paper(
     State(state): State<SharedState>,
     Json(body): Json<ProjectOnlyBody>,
 ) -> ApiResult<Json<ExtractedMetadata>> {
-    let mut project = project_service::open_project(&body.project_path)?;
+    let pp = validate_project_path(&body.project_path)?;
+    let mut project = project_service::open_project(&pp)?;
     let paper = project
         .papers
         .iter()
@@ -279,7 +336,7 @@ async fn ai_parse_paper(
         .ok_or_else(|| AppError::FileNotFound(paper_id.clone()))?
         .clone();
 
-    let pdf_path = std::path::Path::new(&body.project_path)
+    let pdf_path = std::path::Path::new(&pp)
         .join("papers")
         .join(&paper.file_path);
 
@@ -399,4 +456,286 @@ async fn chat_ask(
     }
     let answer = ai_manager::call_chat(&body.question, &settings).await?;
     Ok(Json(serde_json::json!({ "answer": answer })))
+}
+
+// ─── Handlers: New endpoints for full agent operability ───
+
+async fn save_project_handler(
+    Json(body): Json<SaveProjectBody>,
+) -> ApiResult<StatusCode> {
+    project_service::save_project(&body.project)?;
+    Ok(StatusCode::OK)
+}
+
+async fn get_project_info(
+    Query(q): Query<ProjectPathQuery>,
+) -> ApiResult<Json<Project>> {
+    let project = project_service::open_project(&q.project_path)?;
+    Ok(Json(project))
+}
+
+async fn list_relations(
+    Query(q): Query<ProjectPathQuery>,
+) -> ApiResult<Json<Vec<Relation>>> {
+    let project = project_service::open_project(&q.project_path)?;
+    Ok(Json(project.relations))
+}
+
+async fn update_relation_handler(
+    Json(body): Json<UpdateRelationBody>,
+) -> ApiResult<Json<Relation>> {
+    let mut project = project_service::open_project(&body.project_path)?;
+    let idx = project
+        .relations
+        .iter()
+        .position(|r| r.id == body.relation.id)
+        .ok_or_else(|| AppError::Unknown(format!("relation not found: {}", body.relation.id)))?;
+    project.relations[idx] = body.relation.clone();
+    project_service::save_project(&project)?;
+    Ok(Json(body.relation))
+}
+
+async fn batch_add_relations_handler(
+    Json(body): Json<BatchRelationsBody>,
+) -> ApiResult<Json<Vec<Relation>>> {
+    let mut project = project_service::open_project(&body.project_path)?;
+    project.relations.extend(body.relations.clone());
+    project_service::save_project(&project)?;
+    Ok(Json(body.relations))
+}
+
+async fn extract_text_handler(
+    Path(paper_id): Path<String>,
+    Json(body): Json<ProjectOnlyBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let pp = validate_project_path(&body.project_path)?;
+    let project = project_service::open_project(&pp)?;
+    let paper = project
+        .papers
+        .iter()
+        .find(|p| p.id == paper_id)
+        .ok_or_else(|| AppError::FileNotFound(paper_id.clone()))?;
+
+    let pdf_path = std::path::Path::new(&pp)
+        .join("papers")
+        .join(&paper.file_path);
+
+    let text = pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
+        .await
+        .unwrap_or_default();
+    Ok(Json(serde_json::json!({ "text": text })))
+}
+
+async fn batch_ai_parse_handler(
+    State(state): State<SharedState>,
+    Json(body): Json<BatchAiParseBody>,
+) -> ApiResult<Json<HashMap<String, ExtractedMetadata>>> {
+    let pp = validate_project_path(&body.project_path)?;
+    let mut project = project_service::open_project(&pp)?;
+    let settings = state.ai_settings.lock().expect("ai_settings mutex poisoned").clone();
+
+    let concurrency = settings
+        .advanced
+        .as_ref()
+        .map(|a| a.concurrency as usize)
+        .unwrap_or(3);
+
+    let mut work_items = Vec::new();
+    for pid in &body.paper_ids {
+        if let Some(paper) = project.papers.iter().find(|p| &p.id == pid) {
+            let pdf_path = std::path::Path::new(&pp)
+                .join("papers")
+                .join(&paper.file_path);
+            if pdf_path.exists() {
+                work_items.push((pid.clone(), pdf_path));
+            }
+        }
+    }
+
+    let retry_count = settings
+        .advanced
+        .as_ref()
+        .map(|a| a.retry_count as usize)
+        .unwrap_or(1);
+    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(concurrency));
+    let mut handles = Vec::new();
+
+    for (paper_id, pdf_path) in work_items {
+        let sem = sem.clone();
+        let s = settings.clone();
+        handles.push(tokio::spawn(async move {
+            let _permit = sem.acquire().await.expect("semaphore closed");
+            let text = pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
+                .await
+                .unwrap_or_default();
+            let text = if text.trim().is_empty() {
+                format!("Paper ID: {}", paper_id)
+            } else {
+                text
+            };
+
+            let mut last_err = None;
+            for attempt in 0..=retry_count {
+                if attempt > 0 {
+                    let delay_ms = 1000u64 * (1 << (attempt - 1).min(3));
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                }
+                match ai_manager::parse_text(&text, &s).await {
+                    Ok(m) => return (paper_id, Ok(m)),
+                    Err(e) => last_err = Some(e),
+                }
+            }
+            (paper_id, Err(last_err.unwrap()))
+        }));
+    }
+
+    let mut results = HashMap::new();
+    for h in handles {
+        if let Ok((paper_id, result)) = h.await {
+            if let Ok(metadata) = result {
+                if let Some(paper) = project.papers.iter_mut().find(|p| p.id == paper_id) {
+                    if let Some(ref title) = metadata.title {
+                        if !title.is_empty() { paper.title = title.clone(); }
+                    }
+                    if let Some(ref authors) = metadata.authors {
+                        if !authors.is_empty() { paper.authors = authors.clone(); }
+                    }
+                    if metadata.year.is_some() { paper.year = metadata.year; }
+                    if let Some(ref abstract_text) = metadata.abstract_text {
+                        if !abstract_text.is_empty() {
+                            paper.abstract_text = Some(abstract_text.clone());
+                        }
+                    }
+                    paper.updated_at = chrono::Utc::now().to_rfc3339();
+                }
+                results.insert(paper_id, metadata);
+            }
+        }
+    }
+
+    project_service::save_project(&project)?;
+    Ok(Json(results))
+}
+
+async fn run_insights_handler(
+    State(state): State<SharedState>,
+    Json(body): Json<ProjectOnlyBody>,
+) -> ApiResult<Json<Vec<Insight>>> {
+    let project = project_service::open_project(&body.project_path)?;
+    let mut insights = crate::commands::graph_commands::run_rule_based_insights(&project);
+
+    let settings = state.ai_settings.lock().expect("ai_settings mutex poisoned").clone();
+    let papers_with_meta: Vec<_> = project
+        .papers
+        .iter()
+        .filter(|p| p.metadata.is_some())
+        .collect();
+    let has_ai = settings.active_provider.is_some()
+        && (settings.openai_compatible.as_ref().map_or(false, |c| c.enabled && !c.api_key.is_empty())
+            || settings.anthropic.as_ref().map_or(false, |c| c.enabled && !c.api_key.is_empty()));
+
+    if has_ai && papers_with_meta.len() >= 2 {
+        match ai_manager::generate_insights(&project, &settings).await {
+            Ok(ai_insights) => insights.extend(ai_insights),
+            Err(_) => { /* AI failed, keep rule-based insights */ }
+        }
+    }
+
+    insights.dedup_by(|a, b| {
+        a.r#type == b.r#type && a.related_paper_ids == b.related_paper_ids
+    });
+
+    Ok(Json(insights))
+}
+
+async fn get_saved_insights(
+    Query(q): Query<ProjectPathQuery>,
+) -> ApiResult<Json<Vec<Insight>>> {
+    let pp = validate_project_path(&q.project_path)?;
+    let path = std::path::Path::new(&pp).join("insights.json");
+    if !path.exists() {
+        return Ok(Json(vec![]));
+    }
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| AppError::IoError(format!("failed to read insights: {}", e)))?;
+    let insights: Vec<Insight> = serde_json::from_str(&content)
+        .map_err(|e| AppError::Unknown(format!("failed to parse insights: {}", e)))?;
+    Ok(Json(insights))
+}
+
+async fn get_chat_history_handler(
+    Query(q): Query<ProjectPathQuery>,
+) -> ApiResult<Json<Vec<crate::models::ChatMessage>>> {
+    let pp = validate_project_path(&q.project_path)?;
+    let path = std::path::Path::new(&pp).join("chat_history.json");
+    if !path.exists() {
+        return Ok(Json(vec![]));
+    }
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| AppError::IoError(format!("failed to read chat history: {}", e)))?;
+    let messages: Vec<crate::models::ChatMessage> = serde_json::from_str(&content)
+        .map_err(|e| AppError::Unknown(format!("failed to parse chat history: {}", e)))?;
+    Ok(Json(messages))
+}
+
+async fn build_embeddings_handler(
+    State(state): State<SharedState>,
+    Json(body): Json<ProjectOnlyBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let pp = validate_project_path(&body.project_path)?;
+    let project = project_service::open_project(&pp)?;
+    let settings = state.ai_settings.lock().expect("ai_settings mutex poisoned").clone();
+
+    let papers_with_meta: Vec<_> = project
+        .papers
+        .iter()
+        .filter(|p| p.metadata.is_some())
+        .collect();
+
+    if papers_with_meta.is_empty() {
+        return Err(ApiError(AppError::Unknown("no parsed papers found".to_string())));
+    }
+
+    let mut all_chunks: Vec<(String, String, String)> = Vec::new();
+    for paper in &papers_with_meta {
+        let chunks = crate::services::embedding_service::build_chunks_from_paper(paper);
+        for (text, tag) in chunks {
+            all_chunks.push((paper.id.clone(), text, tag));
+        }
+    }
+
+    if all_chunks.is_empty() {
+        return Err(ApiError(AppError::Unknown("no embeddable content found".to_string())));
+    }
+
+    let texts: Vec<String> = all_chunks.iter().map(|(_, t, _)| t.clone()).collect();
+    let embeddings = crate::services::embedding_service::embed_texts(&texts, &settings).await?;
+
+    let mut chunk_index = 0usize;
+    let mut embedding_chunks = Vec::new();
+    for (i, (paper_id, text, _)) in all_chunks.iter().enumerate() {
+        if i < embeddings.len() {
+            embedding_chunks.push(crate::models::EmbeddingChunk {
+                paper_id: paper_id.clone(),
+                chunk_index,
+                text: text.clone(),
+                embedding: embeddings[i].clone(),
+            });
+            chunk_index += 1;
+        }
+    }
+
+    let store = crate::models::EmbeddingStore {
+        chunks: embedding_chunks,
+        model: settings.embedding_model.unwrap_or_else(|| "text-embedding-3-small".to_string()),
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+
+    let store_path = std::path::Path::new(&pp).join("embeddings.json");
+    let json = serde_json::to_string_pretty(&store)
+        .map_err(|e| AppError::Unknown(format!("failed to serialize embeddings: {}", e)))?;
+    std::fs::write(&store_path, json)
+        .map_err(|e| AppError::IoError(format!("failed to write embeddings: {}", e)))?;
+
+    Ok(Json(serde_json::json!({ "chunkCount": store.chunks.len() })))
 }

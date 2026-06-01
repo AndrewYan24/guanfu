@@ -56,6 +56,7 @@ export default {
     tabMetadata: 'Data',
     tabNotes: 'Notes',
     tabRelations: 'Relations',
+    unknownPaper: 'Unknown paper',
   },
   graph: {
     title: 'Graph',

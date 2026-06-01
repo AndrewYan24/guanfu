@@ -61,11 +61,9 @@ async function loadPdf() {
     pdfDoc.value = doc;
     numPages.value = doc.numPages;
 
-    const loadedPages: unknown[] = [];
-    for (let i = 1; i <= doc.numPages; i++) {
-      const page = await doc.getPage(i);
-      loadedPages.push(page);
-    }
+    const loadedPages = await Promise.all(
+      Array.from({ length: doc.numPages }, (_, i) => doc.getPage(i + 1))
+    );
     pages.value = loadedPages;
 
     enableScrollSave = false;

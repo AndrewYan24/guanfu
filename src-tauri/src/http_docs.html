@@ -58,12 +58,20 @@
   <div class="desc">打开项目 &mdash; <code>{ "projectPath": "/path/proj.guanfu" }</code></div>
 </div>
 <div class="endpoint">
+  <span class="method method-post">POST</span><span class="path">/api/projects/save</span>
+  <div class="desc">保存项目 &mdash; <code>{ "project": {...} }</code></div>
+</div>
+<div class="endpoint">
   <span class="method method-get">GET</span><span class="path">/api/projects/recent</span>
   <div class="desc">获取最近项目路径</div>
 </div>
 <div class="endpoint">
   <span class="method method-get">GET</span><span class="path">/api/projects/default-dir</span>
   <div class="desc">获取默认项目目录</div>
+</div>
+<div class="endpoint">
+  <span class="method method-get">GET</span><span class="path">/api/projects/info?projectPath=...</span>
+  <div class="desc">获取项目完整信息（文献 + 关系 + 布局）<span class="badge">AI</span></div>
 </div>
 
 <h2>文献</h2>
@@ -87,11 +95,31 @@
   <span class="method method-post">POST</span><span class="path">/api/papers/{id}/ai-parse</span>
   <div class="desc">AI 解析文献 &mdash; <code>{ "projectPath": "..." }</code></div>
 </div>
+<div class="endpoint">
+  <span class="method method-post">POST</span><span class="path">/api/papers/{id}/extract-text</span>
+  <div class="desc">提取 PDF 全文文本（含 OCR）<span class="badge">AI</span></div>
+</div>
+<div class="endpoint">
+  <span class="method method-post">POST</span><span class="path">/api/papers/batch-ai-parse</span>
+  <div class="desc">批量 AI 解析 &mdash; <code>{ "projectPath": "...", "paperIds": ["id1", "id2"] }</code><span class="badge">AI</span></div>
+</div>
 
 <h2>关系 &amp; 图谱</h2>
 <div class="endpoint">
   <span class="method method-post">POST</span><span class="path">/api/relations/add</span>
   <div class="desc">添加关系 &mdash; <code>{ "projectPath": "...", "relation": {...} }</code></div>
+</div>
+<div class="endpoint">
+  <span class="method method-get">GET</span><span class="path">/api/relations/list?projectPath=...</span>
+  <div class="desc">列出所有关系<span class="badge">AI</span></div>
+</div>
+<div class="endpoint">
+  <span class="method method-post">POST</span><span class="path">/api/relations/update</span>
+  <div class="desc">更新关系 &mdash; <code>{ "projectPath": "...", "relation": {...} }</code></div>
+</div>
+<div class="endpoint">
+  <span class="method method-post">POST</span><span class="path">/api/relations/batch-add</span>
+  <div class="desc">批量添加关系 &mdash; <code>{ "projectPath": "...", "relations": [...] }</code><span class="badge">AI</span></div>
 </div>
 <div class="endpoint">
   <span class="method method-delete">DELETE</span><span class="path">/api/relations/{id}?projectPath=...</span>
@@ -102,7 +130,7 @@
   <div class="desc">保存图谱布局 &mdash; <code>{ "projectPath": "...", "layout": {...} }</code></div>
 </div>
 
-<h2>AI</h2>
+<h2>AI &amp; 洞察</h2>
 <div class="endpoint">
   <span class="method method-post">POST</span><span class="path">/api/ai/recommend-relations</span>
   <div class="desc">AI 推荐关系 &mdash; <code>{ "projectPath": "..." }</code></div>
@@ -112,23 +140,61 @@
   <div class="desc">AI 生成洞察 &mdash; <code>{ "projectPath": "..." }</code></div>
 </div>
 <div class="endpoint">
+  <span class="method method-post">POST</span><span class="path">/api/insights/run</span>
+  <div class="desc">运行规则 + AI 洞察分析<span class="badge">AI</span></div>
+</div>
+<div class="endpoint">
+  <span class="method method-get">GET</span><span class="path">/api/insights/saved?projectPath=...</span>
+  <div class="desc">获取已保存的洞察结果<span class="badge">AI</span></div>
+</div>
+
+<h2>知识库对话</h2>
+<div class="endpoint">
   <span class="method method-post">POST</span><span class="path">/api/chat/ask</span>
   <div class="desc">知识库对话 &mdash; <code>{ "projectPath": "...", "question": "..." }</code></div>
 </div>
+<div class="endpoint">
+  <span class="method method-get">GET</span><span class="path">/api/chat/history?projectPath=...</span>
+  <div class="desc">获取聊天记录<span class="badge">AI</span></div>
+</div>
+<div class="endpoint">
+  <span class="method method-post">POST</span><span class="path">/api/chat/build-embeddings</span>
+  <div class="desc">构建知识库向量索引<span class="badge">AI</span></div>
+</div>
 
 <h2>示例</h2>
-<pre># 打开项目
+<pre># 打开项目并获取信息
 curl -X POST http://localhost:17800/api/projects/open \
   -H "Content-Type: application/json" \
   -d '{"projectPath": "/path/to/MyProject.guanfu"}'
 
+# 导入 PDF
+curl -X POST http://localhost:17800/api/papers/import \
+  -H "Content-Type: application/json" \
+  -d '{"projectPath": "/path/p.guanfu", "filePaths": ["/tmp/paper1.pdf"]}'
+
 # 列出文献
 curl "http://localhost:17800/api/papers/list?projectPath=/path/to/MyProject.guanfu"
 
-# AI 解析文献
-curl -X POST http://localhost:17800/api/papers/{paper_id}/ai-parse \
+# 批量 AI 解析
+curl -X POST http://localhost:17800/api/papers/batch-ai-parse \
   -H "Content-Type: application/json" \
-  -d '{"projectPath": "/path/to/MyProject.guanfu"}'</pre>
+  -d '{"projectPath": "/path/p.guanfu", "paperIds": ["id1", "id2"]}'
+
+# 推荐关系
+curl -X POST http://localhost:17800/api/ai/recommend-relations \
+  -H "Content-Type: application/json" \
+  -d '{"projectPath": "/path/to/MyProject.guanfu"}'
+
+# 运行洞察分析
+curl -X POST http://localhost:17800/api/insights/run \
+  -H "Content-Type: application/json" \
+  -d '{"projectPath": "/path/to/MyProject.guanfu"}'
+
+# 知识库对话
+curl -X POST http://localhost:17800/api/chat/ask \
+  -H "Content-Type: application/json" \
+  -d '{"projectPath": "/path/p.guanfu", "question": "研究方法有哪些趋势？"}'</pre>
 
 </body>
 </html>

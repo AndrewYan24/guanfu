@@ -56,6 +56,7 @@ export default {
     tabMetadata: 'Datumoj',
     tabNotes: 'Notoj',
     tabRelations: 'Rilatoj',
+    unknownPaper: 'Nekonata artikolo',
   },
   graph: {
     title: 'Grafeo',

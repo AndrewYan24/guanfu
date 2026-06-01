@@ -118,6 +118,42 @@
         }
       }
     },
+    "/api/projects/save": {
+      "post": {
+        "summary": "保存项目",
+        "operationId": "saveProject",
+        "description": "将完整 Project 对象保存到 project.json。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["project"],
+                "properties": {
+                  "project": { "$ref": "#/components/schemas/Project" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "保存成功" },
+          "500": { "description": "保存失败", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/projects/info": {
+      "get": {
+        "summary": "获取项目完整信息",
+        "operationId": "getProjectInfo",
+        "description": "返回项目的所有数据：文献列表、关系列表、图谱布局等。",
+        "parameters": [{ "name": "projectPath", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "项目信息", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } } }
+        }
+      }
+    },
     "/api/papers/import": {
       "post": {
         "summary": "导入 PDF 文件",
@@ -212,6 +248,71 @@
         }
       }
     },
+    "/api/papers/{paperId}/extract-text": {
+      "post": {
+        "summary": "提取 PDF 文本",
+        "operationId": "extractPdfText",
+        "description": "从 PDF 文件中提取全文文本（含 OCR 兜底）。",
+        "parameters": [{ "name": "paperId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["projectPath"],
+                "properties": { "projectPath": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "提取的文本",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "properties": { "text": { "type": "string" } } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/papers/batch-ai-parse": {
+      "post": {
+        "summary": "批量 AI 解析文献",
+        "operationId": "batchAiParse",
+        "description": "并发解析多篇文献。根据设置中的并发数和重试次数自动控制。返回成功解析的结果映射（paperId → ExtractedMetadata）。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["projectPath", "paperIds"],
+                "properties": {
+                  "projectPath": { "type": "string" },
+                  "paperIds": { "type": "array", "items": { "type": "string" }, "description": "要解析的文献 ID 列表" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "解析结果映射",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": { "$ref": "#/components/schemas/ExtractedMetadata" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/relations/add": {
       "post": {
         "summary": "添加文献关系",
@@ -233,6 +334,66 @@
         },
         "responses": {
           "200": { "description": "添加成功", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Relation" } } } }
+        }
+      }
+    },
+    "/api/relations/list": {
+      "get": {
+        "summary": "列出项目所有关系",
+        "operationId": "listRelations",
+        "parameters": [{ "name": "projectPath", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "关系列表", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Relation" } } } } }
+        }
+      }
+    },
+    "/api/relations/update": {
+      "post": {
+        "summary": "更新关系",
+        "operationId": "updateRelation",
+        "description": "修改已有关系的类型或证据文本。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["projectPath", "relation"],
+                "properties": {
+                  "projectPath": { "type": "string" },
+                  "relation": { "$ref": "#/components/schemas/Relation" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "更新成功", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Relation" } } } }
+        }
+      }
+    },
+    "/api/relations/batch-add": {
+      "post": {
+        "summary": "批量添加关系",
+        "operationId": "batchAddRelations",
+        "description": "一次性添加多条关系，通常用于确认 AI 推荐的关系。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["projectPath", "relations"],
+                "properties": {
+                  "projectPath": { "type": "string" },
+                  "relations": { "type": "array", "items": { "$ref": "#/components/schemas/RelationInput" } }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "添加成功", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Relation" } } } } }
         }
       }
     },
@@ -313,6 +474,39 @@
         }
       }
     },
+    "/api/insights/run": {
+      "post": {
+        "summary": "运行洞察分析",
+        "operationId": "runInsights",
+        "description": "运行规则引擎 + AI 洞察分析（如果 AI 已配置）。自动去重规则结果和 AI 结果。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["projectPath"],
+                "properties": { "projectPath": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "洞察列表", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Insight" } } } } }
+        }
+      }
+    },
+    "/api/insights/saved": {
+      "get": {
+        "summary": "获取已保存的洞察",
+        "operationId": "getSavedInsights",
+        "description": "从 insights.json 加载上次分析的结果。",
+        "parameters": [{ "name": "projectPath", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "洞察列表", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Insight" } } } } }
+        }
+      }
+    },
     "/api/chat/ask": {
       "post": {
         "summary": "知识库对话",
@@ -343,6 +537,52 @@
                   "type": "object",
                   "properties": { "answer": { "type": "string" } }
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/history": {
+      "get": {
+        "summary": "获取聊天记录",
+        "operationId": "getChatHistory",
+        "parameters": [{ "name": "projectPath", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": {
+            "description": "聊天记录",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/ChatMessage" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/build-embeddings": {
+      "post": {
+        "summary": "构建知识库索引",
+        "operationId": "buildEmbeddings",
+        "description": "为已解析的文献构建向量嵌入索引，用于知识库对话。需要配置 embedding 模型。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["projectPath"],
+                "properties": { "projectPath": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "构建完成",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "properties": { "chunkCount": { "type": "integer" } } }
               }
             }
           }
@@ -444,10 +684,11 @@
         "type": "object",
         "properties": {
           "id": { "type": "string" },
+          "type": { "type": "string", "description": "洞察类型：potential-fault-line, lack-pluralistic-testing, method-homogeneity, theoretical-gap, creative-opportunity" },
           "title": { "type": "string" },
           "description": { "type": "string" },
-          "category": { "type": "string" },
-          "severity": { "type": "string", "enum": ["info", "warning", "critical"] }
+          "relatedPaperIds": { "type": "array", "items": { "type": "string" } },
+          "createdAt": { "type": "string", "format": "date-time" }
         }
       },
       "GraphLayout": {
@@ -465,6 +706,24 @@
       "GraphPosition": {
         "type": "object",
         "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+      },
+      "ChatMessage": {
+        "type": "object",
+        "properties": {
+          "role": { "type": "string", "enum": ["user", "assistant"] },
+          "content": { "type": "string" },
+          "sources": { "type": "array", "items": { "$ref": "#/components/schemas/ChatSource" } },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ChatSource": {
+        "type": "object",
+        "properties": {
+          "paperId": { "type": "string" },
+          "paperTitle": { "type": "string" },
+          "chunkText": { "type": "string" },
+          "similarity": { "type": "number" }
+        }
       }
     }
   }

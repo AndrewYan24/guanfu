@@ -19,10 +19,14 @@ const prevMetadataKey = ref(
   paperStore.papers.map(p => `${p.id}:${p.metadata ? 'm' : ''}:${p.updatedAt}`).join(',')
 );
 
+let autoRunTimer: ReturnType<typeof setTimeout> | null = null;
 function triggerAutoRun() {
-  if (projectStore.projectPath) {
-    insightStore.autoRun(projectStore.projectPath);
-  }
+  if (autoRunTimer) clearTimeout(autoRunTimer);
+  autoRunTimer = setTimeout(() => {
+    if (projectStore.projectPath) {
+      insightStore.autoRun(projectStore.projectPath);
+    }
+  }, 3000);
 }
 
 // Run on mount if project is open

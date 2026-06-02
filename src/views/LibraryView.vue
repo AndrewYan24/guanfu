@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { open, save } from '@tauri-apps/plugin-dialog';
-import { writeTextFile } from '@tauri-apps/plugin-fs';
+import { open } from '@tauri-apps/plugin-dialog';
 import { useProjectStore } from '@/stores/projectStore';
 import { usePaperStore } from '@/stores/paperStore';
 import { useGraphStore } from '@/stores/graphStore';
@@ -64,8 +63,11 @@ async function loadPdfData() {
 
   pdfLoading.value = true;
   try {
-    const bytes = await readPdfFile(projectPath, paper.id);
-    pdfData.value = new Uint8Array(bytes);
+    const base64 = await readPdfFile(projectPath, paper.id);
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    pdfData.value = bytes;
   } catch (e) {
     pdfData.value = null;
     pdfError.value = e instanceof Error ? e.message : t('common.saveFailed');
@@ -84,9 +86,10 @@ watch(
   { immediate: true }
 );
 
-// Reload PDF when re-entering the PDF tab (only if not already loaded)
+// Reload PDF when re-entering the PDF tab
 watch(activeTab, (tab) => {
-  if (tab === 'pdf' && !pdfData.value && paperStore.selectedPaper) {
+  if (tab === 'pdf' && paperStore.selectedPaper) {
+    pdfData.value = null;
     loadPdfData();
   }
 });
@@ -128,47 +131,6 @@ async function openImportDialog() {
       handleImportFiles(paths);
     }
   }
-}
-
-function escapeCsv(val: string): string {
-  if (!val) return '';
-  if (val.includes(',') || val.includes('"') || val.includes('\n')) {
-    return '"' + val.replace(/"/g, '""') + '"';
-  }
-  return val;
-}
-
-async function exportCsv() {
-  const papers = paperStore.papers;
-  if (papers.length === 0) return;
-
-  const headers = [
-    t('metadata.title'), t('metadata.authors'), t('metadata.year'), t('metadata.abstract'),
-    t('metadata.researchQuestion'), t('metadata.coreClaim'), t('metadata.methodology'),
-    t('metadata.findings'), t('metadata.tags'), t('metadata.notes'),
-  ];
-  const rows = papers.map(p => [
-    escapeCsv(p.title),
-    escapeCsv(p.authors.join('; ')),
-    String(p.year || ''),
-    escapeCsv(p.abstract || ''),
-    escapeCsv(p.metadata?.researchQuestion || ''),
-    escapeCsv(p.metadata?.coreClaim || ''),
-    escapeCsv(p.metadata?.methodology || ''),
-    escapeCsv(p.metadata?.findings || ''),
-    escapeCsv(p.tags.join('; ')),
-    escapeCsv(p.notes || ''),
-  ].join(','));
-
-  const csv = '﻿' + headers.join(',') + '\n' + rows.join('\n');
-
-  const filePath = await save({
-    defaultPath: `${projectStore.currentProject?.name || 'export'}.csv`,
-    filters: [{ name: 'CSV', extensions: ['csv'] }],
-  });
-  if (!filePath) return;
-
-  await writeTextFile(filePath, csv);
 }
 
 function handleNotesInput() {
@@ -292,17 +254,6 @@ watch(() => projectStore.hasProject, async (hasProject) => {
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                 <line x1="7" y1="2" x2="7" y2="12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
                 <line x1="2" y1="7" x2="12" y2="7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-              </svg>
-            </button>
-            <button
-              v-if="paperStore.papers.length > 0"
-              class="import-btn"
-              @click="exportCsv"
-              :title="t('library.exportCsv')"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M3 9l4 3 4-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-                <line x1="7" y1="2" x2="7" y2="11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
               </svg>
             </button>
           </div>
@@ -696,6 +647,7 @@ watch(() => projectStore.hasProject, async (hasProject) => {
   font-family: $font-family;
   line-height: 1.7;
   resize: none;
+  overflow-y: auto;
   background: $color-bg;
   color: $color-text-primary;
   transition: border-color $transition-fast, background $transition-fast, color $transition-fast;

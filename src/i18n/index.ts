@@ -1,6 +1,6 @@
 import { createI18n } from 'vue-i18n';
-import sim from './sim';
-import tra from './tra';
+import zhSim from './zh-sim';
+import zhTra from './zh-tra';
 import en from './en';
 import eo from './eo';
 
@@ -8,13 +8,13 @@ const LOCALE_KEY = 'guanfu_locale';
 
 function getStoredLocale(): string {
   const stored = localStorage.getItem(LOCALE_KEY);
-  if (stored && ['sim', 'tra', 'en', 'eo'].includes(stored)) {
+  if (stored && ['zh-sim', 'zh-tra', 'en', 'eo'].includes(stored)) {
     return stored;
   }
   // Detect from browser/system
-  const lang = navigator.language || (navigator as any).userLanguage || 'sim';
+  const lang = navigator.language || (navigator as any).userLanguage || 'zh-sim';
   if (lang.startsWith('zh-TW') || lang.startsWith('zh-HK') || lang.startsWith('zh-Hant')) {
-    return 'tra';
+    return 'zh-tra';
   }
   if (lang.startsWith('en')) {
     return 'en';
@@ -22,16 +22,16 @@ function getStoredLocale(): string {
   if (lang.startsWith('eo')) {
     return 'eo';
   }
-  return 'sim';
+  return 'zh-sim';
 }
 
 const i18n = createI18n({
   legacy: false,
   locale: getStoredLocale(),
-  fallbackLocale: 'sim',
+  fallbackLocale: 'zh-sim',
   messages: {
-    'sim': sim,
-    'tra': tra,
+    'zh-sim': zhSim,
+    'zh-tra': zhTra,
     'en': en,
     'eo': eo,
   },
@@ -48,8 +48,8 @@ export function getLocale(): string {
 }
 
 export const availableLocales = [
-  { code: 'sim', name: '简体中文' },
-  { code: 'tra', name: '繁體中文' },
+  { code: 'zh-sim', name: '简体中文' },
+  { code: 'zh-tra', name: '繁體中文' },
   { code: 'en', name: 'English' },
   { code: 'eo', name: 'Esperanto' },
 ];

@@ -129,10 +129,14 @@ pub struct MaskedAiSettings {
 impl AiProviderConfig {
     pub fn mask_key(&self) -> String {
         let key = &self.api_key;
-        if key.len() <= 8 {
+        if key.len() <= 16 {
             return "****".to_string();
         }
-        format!("{}****{}", &key[..4], &key[key.len() - 4..])
+        let mask_len = 10.min(key.len() / 3);
+        let prefix_len = (key.len() - mask_len) / 2;
+        let suffix_len = key.len() - mask_len - prefix_len;
+        let stars: String = "*".repeat(mask_len);
+        format!("{}{}{}", &key[..prefix_len], stars, &key[key.len() - suffix_len..])
     }
 
     pub fn to_masked(&self) -> MaskedAiProviderConfig {
@@ -148,10 +152,14 @@ impl AiProviderConfig {
 impl MineruConfig {
     pub fn mask_key(&self) -> String {
         let key = &self.api_key;
-        if key.len() <= 8 {
+        if key.len() <= 16 {
             return "****".to_string();
         }
-        format!("{}****{}", &key[..4], &key[key.len() - 4..])
+        let mask_len = 10.min(key.len() / 3);
+        let prefix_len = (key.len() - mask_len) / 2;
+        let suffix_len = key.len() - mask_len - prefix_len;
+        let stars: String = "*".repeat(mask_len);
+        format!("{}{}{}", &key[..prefix_len], stars, &key[key.len() - suffix_len..])
     }
 
     pub fn to_masked(&self) -> MaskedMineruConfig {

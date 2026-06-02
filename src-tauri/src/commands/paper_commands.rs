@@ -1,6 +1,7 @@
 use crate::errors::{AppError, AppResult};
 use crate::models::Paper;
 use crate::services::{paper_service, project_service};
+use base64::Engine;
 
 #[tauri::command]
 pub async fn import_pdfs(project_path: String, file_paths: Vec<String>) -> AppResult<Vec<Paper>> {
@@ -49,7 +50,7 @@ pub async fn get_pdf_file_url(project_path: String, paper_id: String) -> AppResu
 }
 
 #[tauri::command]
-pub async fn read_pdf_file(project_path: String, paper_id: String) -> AppResult<Vec<u8>> {
+pub async fn read_pdf_file(project_path: String, paper_id: String) -> AppResult<String> {
     let project = project_service::open_project(&project_path)?;
     let paper = project
         .papers
@@ -61,7 +62,9 @@ pub async fn read_pdf_file(project_path: String, paper_id: String) -> AppResult<
         .join("papers")
         .join(&paper.file_path);
 
-    std::fs::read(&pdf_path).map_err(|e| {
+    let bytes = std::fs::read(&pdf_path).map_err(|e| {
         AppError::IoError(format!("无法读取 PDF 文件 {}: {}", pdf_path.display(), e))
-    })
+    })?;
+
+    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { ask } from '@tauri-apps/plugin-dialog';
 import { useProjectStore } from '@/stores/projectStore';
 import { useGraphStore } from '@/stores/graphStore';
 import { usePaperStore } from '@/stores/paperStore';
@@ -136,7 +137,8 @@ async function handleDeleteRelation(id: string) {
 }
 
 async function handleDeletePaper(id: string) {
-  if (!window.confirm(t('library.deleteConfirm'))) return;
+  const confirmed = await ask(t('library.deleteConfirm'), { title: t('library.deletePaper'), kind: 'warning' });
+  if (!confirmed) return;
   await paperStore.deletePaper(id);
   selectedNodeId.value = '';
 }
@@ -678,7 +680,7 @@ async function handleDeletePaper(id: string) {
 
 .select-list {
   max-height: 120px;
-  overflow-y: auto;
+  overflow-y: scroll;
 }
 
 .select-item {
@@ -755,6 +757,8 @@ async function handleDeletePaper(id: string) {
   background: $color-bg;
   resize: vertical;
   line-height: 1.5;
+  max-height: 120px;
+  overflow-y: auto;
 
   &:focus {
     outline: none;
@@ -771,6 +775,10 @@ async function handleDeletePaper(id: string) {
   gap: $spacing-sm;
   justify-content: flex-end;
   margin-top: $spacing-lg;
+  position: sticky;
+  bottom: 0;
+  background: $color-bg;
+  padding-top: $spacing-md;
 }
 
 .btn-primary {

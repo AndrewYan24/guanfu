@@ -113,16 +113,21 @@ pub async fn ai_parse_pdfs_batch(
         .map(|a| a.concurrency as usize)
         .unwrap_or(3);
 
-    // Build work items: (paper_id, pdf_path)
-    let mut work_items = Vec::new();
+    // Build work items: (paper_id, pdf_path, fallback_text)
+    let mut work_items: Vec<(String, std::path::PathBuf, String)> = Vec::new();
     for pid in &paper_ids {
         if let Some(paper) = project.papers.iter().find(|p| &p.id == pid) {
             let pdf_path = Path::new(&project_path)
                 .join("papers")
                 .join(&paper.file_path);
-            if pdf_path.exists() {
-                work_items.push((pid.clone(), pdf_path));
+            // Build fallback text from paper metadata
+            let mut fallback = format!("Title: {}", paper.title);
+            if let Some(ref abstract_text) = paper.abstract_text {
+                if !abstract_text.is_empty() {
+                    fallback.push_str(&format!("\nAbstract: {}", abstract_text));
+                }
             }
+            work_items.push((pid.clone(), pdf_path, fallback));
         }
     }
 
@@ -135,7 +140,7 @@ pub async fn ai_parse_pdfs_batch(
     let sem = Arc::new(tokio::sync::Semaphore::new(concurrency));
     let mut handles = Vec::new();
 
-    for (paper_id, pdf_path) in work_items {
+    for (paper_id, pdf_path, fallback_text) in work_items {
         let sem = sem.clone();
         let s = settings.clone();
         handles.push(tokio::spawn(async move {
@@ -144,7 +149,7 @@ pub async fn ai_parse_pdfs_batch(
                 .await
                 .unwrap_or_default();
             let text = if text.trim().is_empty() {
-                format!("Paper ID: {}", paper_id)
+                fallback_text
             } else {
                 text
             };
@@ -170,7 +175,7 @@ pub async fn ai_parse_pdfs_batch(
     let mut failed_ids: Vec<String> = Vec::new();
     for h in handles {
         if let Ok((paper_id, result)) = h.await {
-            let (success, error_msg) = match result {
+            let (success, error_msg, metadata_json) = match result {
                 Ok(metadata) => {
                     // Update project in-memory
                     if let Some(paper) = project.papers.iter_mut().find(|p| p.id == paper_id) {
@@ -188,14 +193,15 @@ pub async fn ai_parse_pdfs_batch(
                         }
                         paper.updated_at = chrono::Utc::now().to_rfc3339();
                     }
+                    let json = serde_json::to_value(&metadata).ok();
                     results.insert(paper_id.clone(), metadata);
-                    (true, None)
+                    (true, None, json)
                 }
                 Err(e) => {
                     let msg = e.to_string();
                     eprintln!("[ai_parse_pdfs_batch] paper {} failed: {}", paper_id, msg);
                     failed_ids.push(paper_id.clone());
-                    (false, Some(msg))
+                    (false, Some(msg), None)
                 }
             };
             done_count += 1;
@@ -203,6 +209,7 @@ pub async fn ai_parse_pdfs_batch(
                 "paperId": paper_id,
                 "success": success,
                 "error": error_msg,
+                "metadata": metadata_json,
                 "done": done_count,
                 "total": total,
             }));
@@ -334,8 +341,14 @@ pub async fn get_ai_settings_masked(
         embedding_model: s.embedding_model.clone(),
         embedding_base_url: s.embedding_base_url.clone(),
         masked_embedding_api_key: s.embedding_api_key.as_ref().map(|k| {
-            if k.len() <= 8 { "****".to_string() }
-            else { format!("{}****{}", &k[..4], &k[k.len()-4..]) }
+            if k.len() <= 16 { "****".to_string() }
+            else {
+                let mask_len = 10.min(k.len() / 3);
+                let prefix_len = (k.len() - mask_len) / 2;
+                let suffix_len = k.len() - mask_len - prefix_len;
+                let stars: String = "*".repeat(mask_len);
+                format!("{}{}{}", &k[..prefix_len], stars, &k[k.len() - suffix_len..])
+            }
         }),
         default_project_dir: s.default_project_dir.clone(),
         http_api_enabled: s.http_api_enabled,

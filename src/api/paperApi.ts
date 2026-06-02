@@ -22,5 +22,5 @@ export function getPdfFileUrl(projectPath: string, paperId: string) {
 }
 
 export function readPdfFile(projectPath: string, paperId: string) {
-  return safeInvoke<number[]>('read_pdf_file', { projectPath, paperId });
+  return safeInvoke<string>('read_pdf_file', { projectPath, paperId });
 }

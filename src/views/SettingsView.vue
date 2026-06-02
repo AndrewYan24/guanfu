@@ -335,7 +335,7 @@ function scrollTo(id: string) {
                 type="password"
                 v-model="openai.apiKey"
                 :placeholder="openai.maskedKey || 'sk-...'"
-                class="input"
+                class="input input-api-key"
               />
             </div>
             <div class="field">
@@ -378,7 +378,7 @@ function scrollTo(id: string) {
                 type="password"
                 v-model="anthropic.apiKey"
                 :placeholder="anthropic.maskedKey || 'sk-ant-...'"
-                class="input"
+                class="input input-api-key"
               />
             </div>
             <div class="field">
@@ -437,7 +437,7 @@ function scrollTo(id: string) {
               type="password"
               v-model="embedding.apiKey"
               :placeholder="embedding.maskedKey || t('settings.embeddingApiKeyHint')"
-              class="input"
+              class="input input-api-key"
             />
           </div>
           <div class="field">
@@ -490,7 +490,7 @@ function scrollTo(id: string) {
               type="password"
               v-model="mineru.apiKey"
               :placeholder="mineru.maskedKey || 'MinerU API Key'"
-              class="input"
+              class="input input-api-key"
             />
           </div>
           <div class="field">
@@ -851,6 +851,16 @@ function scrollTo(id: string) {
 
   &::placeholder {
     color: $color-text-disabled;
+  }
+}
+
+.input-api-key {
+  &::placeholder {
+    color: $color-text-secondary;
+  }
+
+  &:not(:focus)::placeholder {
+    color: $color-text-primary;
   }
 }
 

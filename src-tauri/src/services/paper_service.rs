@@ -5,6 +5,36 @@ use std::path::Path;
 use crate::errors::{AppError, AppResult};
 use crate::models::{Paper, Project};
 
+/// Clean up a filename stem into a readable title.
+fn clean_title(raw: &str) -> String {
+    let mut s = raw.to_string();
+
+    // Remove DOI-like prefixes: 1-s2.0-XXXX, 10.xxxx/xxxx
+    if let Some(pos) = s.find('_') {
+        let prefix = &s[..pos];
+        if prefix.starts_with("1-s2.0-") || prefix.starts_with("10.") {
+            s = s[pos + 1..].to_string();
+        }
+    }
+
+    // Replace underscores and hyphens with spaces
+    s = s.replace('_', " ").replace('-', " ");
+
+    // Collapse multiple spaces
+    while s.contains("  ") {
+        s = s.replace("  ", " ");
+    }
+
+    let s = s.trim().to_string();
+
+    // If result is too short or looks like a hash, return original
+    if s.len() < 3 || s.chars().all(|c| c.is_ascii_hexdigit() || c == ' ') {
+        return raw.to_string();
+    }
+
+    s
+}
+
 pub async fn import_pdfs(project: &mut Project, file_paths: Vec<String>) -> AppResult<Vec<Paper>> {
     let papers_dir = Path::new(&project.path).join("papers");
     fs::create_dir_all(&papers_dir)?;
@@ -45,29 +75,21 @@ pub async fn import_pdfs(project: &mut Project, file_paths: Vec<String>) -> AppR
         let papers_dir = papers_dir.clone();
         handles.push(tokio::spawn(async move {
             let source = Path::new(&file_path);
-            let paper = Paper::new(stem, String::new());
+            let paper = Paper::new(stem.clone(), String::new());
             let dest_filename = format!("{}.pdf", paper.id);
             let dest_path = papers_dir.join(&dest_filename);
             tokio::fs::copy(source, &dest_path).await?;
-            Ok::<(Paper, String), AppError>((paper, dest_filename))
+            Ok::<(Paper, String, String), AppError>((paper, dest_filename, stem))
         }));
     }
 
     let mut new_papers = Vec::new();
     for h in handles {
-        let (mut paper, dest_filename) = h.await.map_err(|e| {
+        let (mut paper, dest_filename, original_stem) = h.await.map_err(|e| {
             AppError::Unknown(format!("文件复制任务失败: {}", e))
         })??;
         paper.file_path = dest_filename;
-        paper.title = std::path::Path::new(&paper.file_path)
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        // Strip the .pdf suffix from title
-        if paper.title.ends_with(".pdf") {
-            paper.title.truncate(paper.title.len() - 4);
-        }
+        paper.title = clean_title(&original_stem);
         project.papers.push(paper.clone());
         new_papers.push(paper);
     }

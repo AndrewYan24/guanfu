@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import type { Relation, GraphLayout, RelationRecommendation } from '@/types';
+import type { Relation, GraphLayout } from '@/types';
 import * as graphApi from '@/api/graphApi';
 import * as aiApi from '@/api/aiApi';
 import { useProjectStore } from './projectStore';
@@ -9,11 +9,23 @@ export const useGraphStore = defineStore('graph', () => {
   const relations = ref<Relation[]>([]);
   const graphLayout = ref<GraphLayout>({ locked: false, positions: {} });
   const selectedRelationId = ref<string | null>(null);
-  const pendingRecommendations = ref<RelationRecommendation[]>([]);
   const isAutoRecommending = ref(false);
+  const recommendingPaperIds = ref(new Set<string>());
 
   let lastRelationCheck = 0;
   const RELATION_CHECK_COOLDOWN = 10000;
+
+  function isPaperRecommending(id: string) {
+    return recommendingPaperIds.value.has(id);
+  }
+
+  function setPaperRecommending(id: string, val: boolean) {
+    if (val) {
+      recommendingPaperIds.value.add(id);
+    } else {
+      recommendingPaperIds.value.delete(id);
+    }
+  }
 
   function loadFromProject(
     projectRelations: Relation[],
@@ -116,21 +128,21 @@ export const useGraphStore = defineStore('graph', () => {
     }
   }
 
-  async function autoRecommendRelations(paperCount: number, autoAccept = false, newPaperIds?: string[]) {
+  async function autoRecommendRelations(paperCount: number, newPaperIds?: string[]) {
     const projectStore = useProjectStore();
     if (!projectStore.projectPath) return;
     if (paperCount < 2) return;
     if (isAutoRecommending.value) return;
 
-    if (!autoAccept) {
-      const now = Date.now();
-      if (now - lastRelationCheck < RELATION_CHECK_COOLDOWN) return;
-    }
+    const now = Date.now();
+    if (now - lastRelationCheck < RELATION_CHECK_COOLDOWN) return;
     lastRelationCheck = Date.now();
 
     isAutoRecommending.value = true;
+    if (newPaperIds) {
+      for (const id of newPaperIds) recommendingPaperIds.value.add(id);
+    }
     try {
-      // Timeout after 120s to prevent hanging
       const recommendations = await Promise.race([
         aiApi.aiRecommendRelations(projectStore.projectPath, newPaperIds),
         new Promise<[]>((_, reject) =>
@@ -146,7 +158,7 @@ export const useGraphStore = defineStore('graph', () => {
         );
       });
 
-      if (autoAccept) {
+      if (newRecs.length > 0) {
         const toAdd: Relation[] = newRecs.map((rec) => ({
           id: crypto.randomUUID(),
           sourceId: rec.sourceId,
@@ -159,46 +171,25 @@ export const useGraphStore = defineStore('graph', () => {
           updatedAt: new Date().toISOString(),
         }));
         await addRelationsBatch(toAdd);
-      } else {
-        pendingRecommendations.value = newRecs;
       }
     } catch (e) {
       console.error('[graphStore] autoRecommendRelations failed:', e);
     } finally {
       isAutoRecommending.value = false;
+      if (newPaperIds) {
+        for (const id of newPaperIds) recommendingPaperIds.value.delete(id);
+      }
     }
-  }
-
-  async function acceptRecommendation(rec: RelationRecommendation) {
-    const newRelation: Relation = {
-      id: crypto.randomUUID(),
-      sourceId: rec.sourceId,
-      targetId: rec.targetId,
-      type: rec.type as Relation['type'],
-      evidence: rec.evidence,
-      isManual: false,
-      confidence: rec.confidence,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    await addRelation(newRelation);
-    pendingRecommendations.value = pendingRecommendations.value.filter(
-      (r) => r !== rec
-    );
-  }
-
-  function dismissRecommendation(rec: RelationRecommendation) {
-    pendingRecommendations.value = pendingRecommendations.value.filter(
-      (r) => r !== rec
-    );
   }
 
   return {
     relations,
     graphLayout,
     selectedRelationId,
-    pendingRecommendations,
     isAutoRecommending,
+    recommendingPaperIds,
+    isPaperRecommending,
+    setPaperRecommending,
     loadFromProject,
     addRelation,
     addRelationsBatch,
@@ -208,7 +199,5 @@ export const useGraphStore = defineStore('graph', () => {
     selectRelation,
     removeRelationsForPaper,
     autoRecommendRelations,
-    acceptRecommendation,
-    dismissRecommendation,
   };
 });

@@ -45,8 +45,18 @@ const MAX_RETRIES: u32 = 3;
 
 /// Extract text from a PDF file using lopdf (local, no external dependency).
 pub fn extract_text(pdf_path: &Path) -> AppResult<String> {
-    let doc = Document::load(pdf_path)
-        .map_err(|e| crate::errors::AppError::Unknown(format!("无法加载 PDF: {}", e)))?;
+    let bytes = std::fs::read(pdf_path)
+        .map_err(|e| crate::errors::AppError::IoError(format!("无法读取 PDF 文件: {}", e)))?;
+
+    let load_bytes = preprocess_pdf(&bytes);
+    let doc = match Document::load_mem(&load_bytes) {
+        Ok(doc) => doc,
+        Err(e) => {
+            Document::load(pdf_path).map_err(|e2| {
+                crate::errors::AppError::Unknown(format!("lopdf 加载失败: load_mem={}, load={}", e, e2))
+            })?
+        }
+    };
 
     let pages = doc.get_pages();
     let mut text = String::new();
@@ -59,6 +69,62 @@ pub fn extract_text(pdf_path: &Path) -> AppResult<String> {
     }
 
     Ok(text)
+}
+
+/// Find the last occurrence of `needle` in `haystack`.
+fn find_last(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .rposition(|w| w == needle)
+}
+
+
+/// Preprocess PDF bytes to fix common CNKI/non-standard PDF formatting issues.
+/// Fixes:
+/// 1. `xref N M` on the same line (lopdf requires `xref` on its own line)
+/// 2. Extra metadata injected after `%%EOF`
+fn preprocess_pdf(bytes: &[u8]) -> Vec<u8> {
+    let mut result = bytes.to_vec();
+
+    // Fix 1: `xref` followed by space + numbers on the same line.
+    // lopdf requires `xref\n` but CNKI puts `xref 0 259\n`.
+    // Pattern: b"xref " followed by digit -> insert \n after "xref"
+    let mut fixes = 0;
+    let mut i = 0;
+    while i + 5 < result.len() {
+        if &result[i..i + 5] == b"xref "
+            && i + 5 < result.len()
+            && result[i + 5].is_ascii_digit()
+        {
+            // Insert \n after "xref" (replace the space with \n)
+            result[i + 4] = b'\n';
+            fixes += 1;
+        }
+        i += 1;
+    }
+    if fixes > 0 {
+        eprintln!("[pdf_text_extractor] 修复了 {} 处 xref 格式", fixes);
+    }
+
+    // Fix 2: Trim content after last %%EOF
+    if let Some(pos) = find_last(&result, b"%%EOF") {
+        let end = pos + 5;
+        let end = if end < result.len() && (result[end] == b'\n' || result[end] == b'\r') {
+            end + 1
+        } else {
+            end
+        };
+        if end < result.len() {
+            eprintln!(
+                "[pdf_text_extractor] 裁剪 PDF 尾部: {} → {} 字节",
+                result.len(),
+                result.len() - end
+            );
+            result.truncate(end);
+        }
+    }
+
+    result
 }
 
 /// Check if extracted text is sufficient for AI analysis.
@@ -264,23 +330,22 @@ async fn extract_text_paddle_ocr(pdf_path: &Path) -> AppResult<String> {
 }
 
 /// Extract text with automatic fallback to OCR.
-/// First tries lopdf extraction, then falls back to PaddleOCR if text is insufficient.
+/// First tries lopdf extraction, then falls back to PaddleOCR if text is insufficient or lopdf fails.
 pub async fn extract_text_with_ocr_fallback(pdf_path: &Path) -> AppResult<String> {
-    // Try standard text extraction first
     match extract_text(pdf_path) {
         Ok(text) if has_sufficient_text(&text) => Ok(text),
-        Ok(_) => {
-            // Text is insufficient (likely scanned PDF), try OCR
+        Ok(text) => {
             match extract_text_paddle_ocr(pdf_path).await {
                 Ok(ocr_text) => Ok(ocr_text),
-                Err(ocr_err) => {
-                    eprintln!("警告: PDF 文本提取不足且 OCR 失败 ({}). 将使用有限的文本。", ocr_err);
-                    // Return whatever lopdf extracted, even if insufficient
-                    extract_text(pdf_path)
-                }
+                Err(_) => Ok(text),
             }
         }
-        Err(e) => Err(e),
+        Err(e) => {
+            match extract_text_paddle_ocr(pdf_path).await {
+                Ok(ocr_text) => Ok(ocr_text),
+                Err(_) => Err(e),
+            }
+        }
     }
 }
 

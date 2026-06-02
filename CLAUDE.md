@@ -1388,4 +1388,50 @@ mock 数据必须结构真实，方便后续替换。
 7. 项目创建、打开、保存的最小闭环。
 
 完成每个阶段后，确保项目可以运行、类型检查通过、基础功能可交互。
+
+---
+
+## 21. 开发环境注意事项
+
+### 21.1 Cargo 命令必须指定 manifest-path
+
+本项目的 `Cargo.toml` 位于 `src-tauri/` 子目录下，**不在项目根目录**。
+
+所有 `cargo` 命令必须使用 `--manifest-path` 参数，否则会报 `could not find Cargo.toml` 错误：
+
+```bash
+# ✅ 正确
+cargo check --manifest-path /Users/andrew/Desktop/Guanfu/src-tauri/Cargo.toml
+cargo build --manifest-path /Users/andrew/Desktop/Guanfu/src-tauri/Cargo.toml
+
+# ❌ 错误（项目根目录下没有 Cargo.toml）
+cargo check
+cargo build
+```
+
+### 21.2 npm / npx 命令在项目根目录运行
+
+前端命令（`npx vue-tsc`、`npm run dev` 等）在项目根目录 `/Users/andrew/Desktop/Guanfu/` 下运行。
+
+### 21.3 Rust 中禁止对 UTF-8 字符串做固定字节截断
+
+中文等多字节 UTF-8 字符会 panic。**禁止**以下写法：
+
+```rust
+// ❌ 会 panic：30000 可能切到中文字符中间
+&text[..30000]
+&text[..text.len().min(300)]
+```
+
+**必须**使用 `truncate_str` 保证在字符边界截断：
+
+```rust
+// ✅ 正确
+fn truncate_str(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes { return s; }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) { end -= 1; }
+    &s[..end]
+}
+```
 ```

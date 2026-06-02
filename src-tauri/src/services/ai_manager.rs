@@ -2,10 +2,22 @@ use crate::errors::{AppError, AppResult};
 use crate::models::{AiSettings, ExtractedMetadata, RelationRecommendation};
 use tauri::Emitter;
 
+/// Truncate a UTF-8 string to at most `max_bytes` bytes without splitting a character.
+pub fn truncate_str(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 /// Generate language instruction based on user's UI locale setting.
 fn language_instruction(locale: Option<&str>) -> &str {
     match locale {
-        Some(l) if l == "sim" || l == "tra" || l.starts_with("zh") => "使用中文回答。",
+        Some(l) if l.starts_with("zh") => "使用中文回答。",
         Some("eo") => "Respondu en Esperanto.",
         _ => "Respond in English.",
     }
@@ -245,7 +257,7 @@ async fn call_openai(api_key: &str, base_url: &str, model: &str, text: &str, pro
     let client = reqwest::Client::new();
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
-    let truncated = if text.len() > 30000 { &text[..30000] } else { text };
+    let truncated = truncate_str(text, 30000);
 
     let user_content = if prompt_prefix.is_empty() {
         truncated.to_string()
@@ -277,7 +289,7 @@ async fn call_openai(api_key: &str, base_url: &str, model: &str, text: &str, pro
     if !resp.status().is_success() {
         let status = resp.status();
         let err_text = resp.text().await.unwrap_or_default();
-        return Err(AppError::Unknown(format!("AI API 错误 {}: {}", status, err_text)));
+        return Err(AppError::Unknown(format!("AI API 错误 {}: {}", status, truncate_str(&err_text, 500))));
     }
 
     let resp_json: serde_json::Value = resp
@@ -299,7 +311,7 @@ async fn call_anthropic(api_key: &str, base_url: Option<&str>, model: &str, text
         base_url.unwrap_or("https://api.anthropic.com").trim_end_matches('/')
     );
 
-    let truncated = if text.len() > 30000 { &text[..30000] } else { text };
+    let truncated = truncate_str(text, 30000);
 
     let user_content = if prompt_prefix.is_empty() {
         truncated.to_string()
@@ -331,7 +343,7 @@ async fn call_anthropic(api_key: &str, base_url: Option<&str>, model: &str, text
     if !resp.status().is_success() {
         let status = resp.status();
         let err_text = resp.text().await.unwrap_or_default();
-        return Err(AppError::Unknown(format!("AI API 错误 {}: {}", status, err_text)));
+        return Err(AppError::Unknown(format!("AI API 错误 {}: {}", status, truncate_str(&err_text, 500))));
     }
 
     let resp_json: serde_json::Value = resp
@@ -358,7 +370,9 @@ fn parse_ai_response(content: &str) -> AppResult<ExtractedMetadata> {
     };
 
     let v: serde_json::Value = serde_json::from_str(json_str)
-        .map_err(|e| AppError::Unknown(format!("无法解析 AI 返回的 JSON: {}", e)))?;
+        .map_err(|e| {
+            AppError::Unknown(format!("无法解析 AI 返回的 JSON: {}", e))
+        })?;
 
     let get = |key: &str| -> String {
         v[key].as_str().unwrap_or("").to_string()
@@ -389,7 +403,7 @@ fn parse_ai_response(content: &str) -> AppResult<ExtractedMetadata> {
         v["year"].as_i64().map(|y| y as i32)
     };
 
-    Ok(ExtractedMetadata {
+    let metadata = ExtractedMetadata {
         title: if v["title"].is_string() { Some(get("title")) } else { None },
         authors: get_authors(),
         year: get_year(),
@@ -406,7 +420,8 @@ fn parse_ai_response(content: &str) -> AppResult<ExtractedMetadata> {
         last_updated: chrono::Utc::now().to_rfc3339(),
         source: "ai".to_string(),
         is_ai_generated: Some(true),
-    })
+    };
+    Ok(metadata)
 }
 
 pub async fn test_connection(settings: &AiSettings) -> AppResult<bool> {
@@ -516,6 +531,7 @@ const RELATION_PROMPT: &str = r#"分析以下论文之间的学术论争关系�
 4. confidence 标准：显式关系 0.9+=明确定义，0.7+=较强证据，0.5+=合理推断；隐含关系 0.4+=合理推断，低于 0.4 不输出
 5. 最多输出 25 条
 6. discoveryMethod 标注每条关系的发现依据类型
+7. **语言一致性**：evidence 字段必须完全使用回复语言书写。即使论文原文是其他语言，也要翻译为回复语言后再引用。禁止在同一句话中混用多种语言。
 
 ## 输出格式
 只返回 JSON 数组，不要任何解释文字：
@@ -573,6 +589,7 @@ const RELATION_PROMPT_NEW: &str = r#"以下有「新论文」和「已有论文�
 4. confidence 标准：显式关系 0.5+=合理推断；隐含关系 0.4+=合理推断；低于阈值不输出
 5. 最多输出 25 条
 6. discoveryMethod 标注每条关系的发现依据类型
+7. **语言一致性**：evidence 字段必须完全使用回复语言书写。即使论文原文是其他语言，也要翻译为回复语言后再引用。禁止在同一句话中混用多种语言。
 
 ## 输出格式
 只返回 JSON 数组：
@@ -610,7 +627,7 @@ fn build_paper_summaries(papers: &[crate::models::Paper]) -> Vec<serde_json::Val
 
 async fn call_ai_raw(prompt: &str, settings: &AiSettings) -> AppResult<String> {
     let locale = settings.locale.as_deref();
-    call_ai_raw_with_tokens(prompt, settings, 6000, locale).await
+    call_ai_raw_with_tokens(prompt, settings, 12000, locale).await
 }
 
 async fn call_ai_raw_with_tokens(prompt: &str, settings: &AiSettings, max_tokens: u32, locale: Option<&str>) -> AppResult<String> {
@@ -670,8 +687,12 @@ pub async fn recommend_relations(
     let locale = settings.locale.as_deref();
     let lang_instr = language_instruction(locale);
     let full_prompt = format!("{}\n{}\n{}", lang_instr, RELATION_PROMPT, papers_json);
+    eprintln!("[relations] 全量推荐: {} 篇论文, prompt {} 字符", summaries.len(), full_prompt.len());
     let content = call_ai_raw(&full_prompt, settings).await?;
-    parse_relation_response(&content, papers_with_meta)
+    eprintln!("[relations] AI 返回 {} 字符", content.len());
+    let result = parse_relation_response(&content, papers_with_meta)?;
+    eprintln!("[relations] 解析出 {} 条关系", result.len());
+    Ok(result)
 }
 
 pub async fn recommend_relations_for_new(
@@ -703,12 +724,19 @@ pub async fn recommend_relations_for_new(
             prompt.push_str("\n\n## 已有论文\n");
             prompt.push_str(&serde_json::to_string(&existing_summaries).unwrap_or_default());
         }
-
+        eprintln!("[relations] 新论文推荐: {} 新 / {} 已有, prompt {} 字符",
+            new_summaries.len(), existing_summaries.len(), prompt.len());
         let content = call_ai_raw(&prompt, settings).await?;
-        return parse_relation_response(&content, all_papers);
+        eprintln!("[relations] AI 返回 {} 字符", content.len());
+        let result = parse_relation_response(&content, all_papers)?;
+        eprintln!("[relations] 解析出 {} 条关系", result.len());
+        return Ok(result);
     }
 
     // Chunk new papers and run multiple calls in parallel
+    let chunk_count = (new_summaries.len() + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    eprintln!("[relations] 新论文推荐(分块): {} 新 / {} 已有, 分 {} 块",
+        new_summaries.len(), existing_summaries.len(), chunk_count);
     let mut all_results = Vec::new();
     let mut handles = Vec::new();
     let owned_settings = settings.clone();
@@ -731,8 +759,15 @@ pub async fn recommend_relations_for_new(
 
     for h in handles {
         if let Ok(Ok(content)) = h.await {
-            if let Ok(relations) = parse_relation_response(&content, all_papers) {
-                all_results.extend(relations);
+            eprintln!("[relations] 分块返回 {} 字符", content.len());
+            match parse_relation_response(&content, all_papers) {
+                Ok(relations) => {
+                    eprintln!("[relations] 分块解析出 {} 条关系", relations.len());
+                    all_results.extend(relations);
+                }
+                Err(e) => {
+                    eprintln!("[relations] 分块解析失败: {}", e);
+                }
             }
         }
     }
@@ -754,7 +789,9 @@ async fn call_openai_raw(api_key: &str, base_url: &str, model: &str, prompt: &st
     let client = reqwest::Client::new();
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
-    let system_msg = format!("你是社科学术论争分析专家。严格只返回 JSON，不要任何其他文字。{}", language_instruction(locale));
+    let system_msg = format!("你是社科学术论争分析专家。严格只返回 JSON，不要任何其他文字。所有文本字段（尤其是 evidence）必须使用同一种语言，禁止混用多种语言。{}", language_instruction(locale));
+
+    eprintln!("[relations] OpenAI 请求: model={}, prompt={} 字符, max_tokens={}", model, prompt.len(), max_tokens);
 
     let body = serde_json::json!({
         "model": model,
@@ -778,6 +815,7 @@ async fn call_openai_raw(api_key: &str, base_url: &str, model: &str, prompt: &st
     if !resp.status().is_success() {
         let status = resp.status();
         let err_text = resp.text().await.unwrap_or_default();
+        eprintln!("[relations] OpenAI 错误: status={}, body={}", status, truncate_str(&err_text, 300));
         return Err(AppError::Unknown(format!("AI API 错误 {}: {}", status, err_text)));
     }
 
@@ -786,10 +824,13 @@ async fn call_openai_raw(api_key: &str, base_url: &str, model: &str, prompt: &st
         .await
         .map_err(|e| AppError::Unknown(format!("解析 AI 响应失败: {}", e)))?;
 
-    Ok(resp_json["choices"][0]["message"]["content"]
+    let content = resp_json["choices"][0]["message"]["content"]
         .as_str()
-        .unwrap_or("[]")
-        .to_string())
+        .unwrap_or("[]");
+    let finish_reason = resp_json["choices"][0]["finish_reason"].as_str().unwrap_or("unknown");
+    eprintln!("[relations] OpenAI 响应: {} 字符, finish_reason={}", content.len(), finish_reason);
+
+    Ok(content.to_string())
 }
 
 /// Call Anthropic and return raw text content.
@@ -800,7 +841,9 @@ async fn call_anthropic_raw(api_key: &str, base_url: Option<&str>, model: &str, 
         base_url.unwrap_or("https://api.anthropic.com").trim_end_matches('/')
     );
 
-    let system_msg = format!("你是社科学术论争分析专家。严格只返回 JSON，不要任何其他文字。{}", language_instruction(locale));
+    let system_msg = format!("你是社科学术论争分析专家。严格只返回 JSON，不要任何其他文字。所有文本字段（尤其是 evidence）必须使用同一种语言，禁止混用多种语言。{}", language_instruction(locale));
+
+    eprintln!("[relations] Anthropic 请求: model={}, prompt={} 字符, max_tokens={}", model, prompt.len(), max_tokens);
 
     let body = serde_json::json!({
         "model": model,
@@ -824,6 +867,7 @@ async fn call_anthropic_raw(api_key: &str, base_url: Option<&str>, model: &str, 
     if !resp.status().is_success() {
         let status = resp.status();
         let err_text = resp.text().await.unwrap_or_default();
+        eprintln!("[relations] Anthropic 错误: status={}, body={}", status, truncate_str(&err_text, 300));
         return Err(AppError::Unknown(format!("AI API 错误 {}: {}", status, err_text)));
     }
 
@@ -832,17 +876,22 @@ async fn call_anthropic_raw(api_key: &str, base_url: Option<&str>, model: &str, 
         .await
         .map_err(|e| AppError::Unknown(format!("解析 AI 响应失败: {}", e)))?;
 
-    Ok(resp_json["content"][0]["text"]
+    let content = resp_json["content"][0]["text"]
         .as_str()
-        .unwrap_or("[]")
-        .to_string())
+        .unwrap_or("[]");
+    let stop_reason = resp_json["stop_reason"].as_str().unwrap_or("unknown");
+    eprintln!("[relations] Anthropic 响应: {} 字符, stop_reason={}", content.len(), stop_reason);
+
+    Ok(content.to_string())
 }
 
 fn parse_relation_response(content: &str, papers: &[crate::models::Paper]) -> AppResult<Vec<RelationRecommendation>> {
+    eprintln!("[relations] 解析响应: {} 字符, 前200字: {:?}", content.len(), truncate_str(content, 200));
     let json_str = if let Some(start) = content.find('[') {
         if let Some(end) = content.rfind(']') {
             &content[start..=end]
         } else {
+            eprintln!("[relations] 警告: 找到 '[' 但未找到 ']'");
             content
         }
     } else if let Some(start) = content.find('{') {
@@ -851,26 +900,52 @@ fn parse_relation_response(content: &str, papers: &[crate::models::Paper]) -> Ap
             let wrapper: serde_json::Value = serde_json::from_str(&content[start..=end])
                 .map_err(|e| AppError::Unknown(format!("无法解析 AI 返回的 JSON: {}", e)))?;
             if let Some(arr) = wrapper.get("relations").and_then(|v| v.as_array()) {
+                eprintln!("[relations] 从 {{relations:[...]}} 包装中提取");
                 return parse_relation_array(arr, papers);
             }
-            // Return the raw slice and let array parsing fail gracefully
             &content[start..=end]
         } else {
             content
         }
     } else {
+        eprintln!("[relations] 警告: 响应中未找到 '[' 或 '{{'");
         content
     };
 
-    let arr: Vec<serde_json::Value> = serde_json::from_str(json_str)
-        .map_err(|e| AppError::Unknown(format!("无法解析 AI 返回的关系 JSON: {}", e)))?;
-
-    parse_relation_array(&arr, papers)
+    // Try parsing as-is first
+    match serde_json::from_str::<Vec<serde_json::Value>>(json_str) {
+        Ok(arr) => parse_relation_array(&arr, papers),
+        Err(e) => {
+            eprintln!("[relations] JSON 解析失败: {}, 尝试截断恢复...", e);
+            // JSON may be truncated (e.g. EOF mid-string) — try to recover
+            if let Some(last_brace) = json_str.rfind('}') {
+                let truncated = &json_str[..=last_brace];
+                let recovered = format!("{}]", truncated);
+                match serde_json::from_str::<Vec<serde_json::Value>>(&recovered) {
+                    Ok(arr) => {
+                        eprintln!("[relations] 截断恢复成功: {} 条关系", arr.len());
+                        parse_relation_array(&arr, papers)
+                    }
+                    Err(e2) => {
+                        eprintln!("[relations] 截断恢复也失败: {}", e2);
+                        Err(AppError::Unknown(format!("无法解析 AI 返回的关系 JSON: {}", e2)))
+                    }
+                }
+            } else {
+                Err(AppError::Unknown(format!("无法解析 AI 返回的关系 JSON: {}", e)))
+            }
+        }
+    }
 }
 
 fn parse_relation_array(arr: &[serde_json::Value], papers: &[crate::models::Paper]) -> AppResult<Vec<RelationRecommendation>> {
     let paper_ids: std::collections::HashSet<&str> = papers.iter().map(|p| p.id.as_str()).collect();
     let valid_types = ["supports", "opposes", "modifies", "adopts", "reinterprets"];
+
+    let mut skipped_unknown_paper = 0;
+    let mut skipped_self = 0;
+    let mut skipped_bad_type = 0;
+    let mut skipped_low_conf = 0;
 
     let recommendations: Vec<RelationRecommendation> = arr
         .iter()
@@ -883,15 +958,21 @@ fn parse_relation_array(arr: &[serde_json::Value], papers: &[crate::models::Pape
 
             // Validate
             if !paper_ids.contains(source_id) || !paper_ids.contains(target_id) {
+                skipped_unknown_paper += 1;
+                eprintln!("[relations] 跳过: 未知论文 source={} target={}", source_id, target_id);
                 return None;
             }
             if source_id == target_id {
+                skipped_self += 1;
                 return None;
             }
             if !valid_types.contains(&rel_type) {
+                skipped_bad_type += 1;
+                eprintln!("[relations] 跳过: 无效类型 '{}' (source={} target={})", rel_type, source_id, target_id);
                 return None;
             }
             if confidence < 0.5 {
+                skipped_low_conf += 1;
                 return None;
             }
 
@@ -905,6 +986,13 @@ fn parse_relation_array(arr: &[serde_json::Value], papers: &[crate::models::Pape
             })
         })
         .collect();
+
+    let total_skipped = arr.len() - recommendations.len();
+    if total_skipped > 0 {
+        eprintln!("[relations] 过滤: 原始 {} 条, 有效 {} 条, 跳过 {} 条 (未知论文={}, 自引用={}, 无效类型={}, 低置信度={})",
+            arr.len(), recommendations.len(), total_skipped,
+            skipped_unknown_paper, skipped_self, skipped_bad_type, skipped_low_conf);
+    }
 
     Ok(recommendations)
 }

@@ -126,10 +126,10 @@ async function handleParse() {
       <div class="header-actions">
         <button
           class="action-btn"
-          :disabled="isParsing"
+          :disabled="isParsing || isAutoParsing || isQueued"
           @click="handleParse"
         >
-          {{ isParsing ? t('metadata.discovering') : t('metadata.reDiscover') }}
+          {{ (isParsing || isAutoParsing) ? t('metadata.discovering') : isQueued ? t('metadata.queued') : t('metadata.reDiscover') }}
         </button>
         <button
           v-if="hasChanges"

@@ -7,6 +7,8 @@
     "core:event:default",
     "shell:allow-open",
     "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:allow-ask",
     "fs:default",
     "fs:allow-home-read-recursive",
     "fs:allow-home-write-recursive",

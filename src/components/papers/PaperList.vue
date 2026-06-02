@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { ask, save } from '@tauri-apps/plugin-dialog';
+import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { usePaperStore } from '@/stores/paperStore';
 import { useProjectStore } from '@/stores/projectStore';
+import { useGraphStore } from '@/stores/graphStore';
+import { useToast } from '@/composables/useToast';
 
 const { t } = useI18n();
 const paperStore = usePaperStore();
 const projectStore = useProjectStore();
+const graphStore = useGraphStore();
+const toast = useToast();
 
 const papers = computed(() => paperStore.filteredPapers);
 
@@ -15,6 +21,10 @@ const contextMenuX = ref(0);
 const contextMenuY = ref(0);
 const showSortMenu = ref(false);
 const showTagMenu = ref(false);
+
+// Multi-select
+const selectedIds = ref<Set<string>>(new Set());
+const lastClickedId = ref<string | null>(null);
 
 // Debounced search
 const searchInput = ref(paperStore.searchQuery);
@@ -67,6 +77,13 @@ function handleKeyDown(e: KeyboardEvent) {
     return;
   }
 
+  // Cmd/Ctrl+A → select all papers
+  if (isMod && e.key === 'a') {
+    e.preventDefault();
+    selectedIds.value = new Set(papers.value.map(p => p.id));
+    return;
+  }
+
   // Arrow keys navigate papers
   if (e.key === 'ArrowDown') {
     e.preventDefault();
@@ -77,12 +94,68 @@ function handleKeyDown(e: KeyboardEvent) {
   }
 }
 
+function handlePaperClick(e: MouseEvent, paperId: string) {
+  const isMod = e.metaKey || e.ctrlKey;
+  if (isMod) {
+    // Toggle selection
+    const s = new Set(selectedIds.value);
+    if (s.has(paperId)) {
+      s.delete(paperId);
+    } else {
+      s.add(paperId);
+    }
+    selectedIds.value = s;
+    lastClickedId.value = paperId;
+    paperStore.selectPaper(paperId);
+  } else if (e.shiftKey && lastClickedId.value) {
+    // Range select
+    const list = papers.value;
+    const fromIdx = list.findIndex(p => p.id === lastClickedId.value);
+    const toIdx = list.findIndex(p => p.id === paperId);
+    if (fromIdx !== -1 && toIdx !== -1) {
+      const s = new Set(selectedIds.value);
+      const start = Math.min(fromIdx, toIdx);
+      const end = Math.max(fromIdx, toIdx);
+      for (let i = start; i <= end; i++) {
+        s.add(list[i].id);
+      }
+      selectedIds.value = s;
+    }
+    paperStore.selectPaper(paperId);
+  } else {
+    // Normal click — clear multi-select
+    selectedIds.value = new Set();
+    lastClickedId.value = paperId;
+    paperStore.selectPaper(paperId);
+  }
+}
+
 function handleContextMenu(e: MouseEvent, paperId: string) {
   e.preventDefault();
+  // If right-clicking an unselected item, select it only
+  if (!selectedIds.value.has(paperId)) {
+    selectedIds.value = new Set([paperId]);
+    paperStore.selectPaper(paperId);
+  }
   contextMenuPaperId.value = paperId;
-  contextMenuX.value = e.clientX;
-  contextMenuY.value = e.clientY;
+
+  // Position menu with edge detection
+  const menuWidth = 160;
+  const menuHeight = 120;
+  const padding = 8;
+  let x = e.clientX;
+  let y = e.clientY;
+  if (x + menuWidth > window.innerWidth - padding) {
+    x = window.innerWidth - menuWidth - padding;
+  }
+  if (y + menuHeight > window.innerHeight - padding) {
+    y = window.innerHeight - menuHeight - padding;
+  }
+  contextMenuX.value = Math.max(padding, x);
+  contextMenuY.value = Math.max(padding, y);
 }
+
+const isMultiSelected = computed(() => selectedIds.value.size > 1);
 
 function closeContextMenu() {
   contextMenuPaperId.value = null;
@@ -92,7 +165,8 @@ async function handleDelete() {
   const id = contextMenuPaperId.value;
   closeContextMenu();
   if (!id) return;
-  if (!window.confirm(t('library.deleteConfirm'))) return;
+  const confirmed = await ask(t('library.deleteConfirm'), { title: t('library.deletePaper'), kind: 'warning' });
+  if (!confirmed) return;
   await paperStore.deletePaper(id);
 }
 
@@ -112,6 +186,67 @@ async function handleReparse() {
   if (!id) return;
   if (!projectStore.projectPath) return;
   await paperStore.reparsePaper(id);
+}
+
+async function handleBatchDelete() {
+  const ids = [...selectedIds.value];
+  closeContextMenu();
+  if (ids.length === 0) return;
+  const confirmed = await ask(t('library.batchDeleteConfirm', { count: ids.length }), { title: t('library.batchDelete'), kind: 'warning' });
+  if (!confirmed) return;
+  await paperStore.batchDeletePapers(ids);
+  selectedIds.value = new Set();
+}
+
+async function handleBatchReparse() {
+  const ids = [...selectedIds.value];
+  closeContextMenu();
+  if (ids.length === 0) return;
+  if (!projectStore.projectPath) return;
+  await paperStore.batchReparsePapers(ids);
+}
+
+function escapeCsv(val: string): string {
+  if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+    return '"' + val.replace(/"/g, '""') + '"';
+  }
+  return val;
+}
+
+async function handleBatchExportCsv() {
+  const ids = [...selectedIds.value];
+  closeContextMenu();
+  if (ids.length === 0) return;
+
+  const papers = paperStore.papers.filter(p => ids.includes(p.id));
+  const headers = [
+    t('metadata.title'), t('metadata.authors'), t('metadata.year'), t('metadata.abstract'),
+    t('metadata.researchQuestion'), t('metadata.coreClaim'), t('metadata.methodology'),
+    t('metadata.findings'), t('metadata.tags'), t('metadata.notes'),
+  ];
+  const rows = papers.map(p => [
+    escapeCsv(p.title),
+    escapeCsv(p.authors.join('; ')),
+    String(p.year || ''),
+    escapeCsv(p.abstract || ''),
+    escapeCsv(p.metadata?.researchQuestion || ''),
+    escapeCsv(p.metadata?.coreClaim || ''),
+    escapeCsv(p.metadata?.methodology || ''),
+    escapeCsv(p.metadata?.findings || ''),
+    escapeCsv(p.tags.join('; ')),
+    escapeCsv(p.notes || ''),
+  ].join(','));
+
+  const csv = '﻿' + headers.join(',') + '\n' + rows.join('\n');
+
+  const filePath = await save({
+    defaultPath: `${projectStore.currentProject?.name || 'export'}.csv`,
+    filters: [{ name: 'CSV', extensions: ['csv'] }],
+  });
+  if (!filePath) return;
+
+  await writeTextFile(filePath, csv);
+  toast.show(t('common.exported'));
 }
 
 function handleGlobalClick() {
@@ -273,14 +408,15 @@ onUnmounted(() => {
       v-for="paper in papers"
       :key="paper.id"
       class="paper-item"
-      :class="{ selected: paperStore.selectedPaperId === paper.id, parsing: paperStore.isPaperParsing(paper.id) }"
-      @click="paperStore.selectPaper(paper.id)"
+      :class="{ selected: paperStore.selectedPaperId === paper.id, 'multi-selected': selectedIds.has(paper.id), parsing: paperStore.isPaperParsing(paper.id), recommending: graphStore.isPaperRecommending(paper.id) }"
+      @click="handlePaperClick($event, paper.id)"
       @contextmenu="handleContextMenu($event, paper.id)"
     >
       <div class="paper-info">
         <span class="paper-title">
           <span class="paper-title-text">{{ paper.title || t('common.empty') }}</span>
           <span v-if="paperStore.isPaperParsing(paper.id)" class="parse-spinner" />
+          <span v-else-if="graphStore.isPaperRecommending(paper.id)" class="parse-spinner" />
         </span>
         <span class="paper-meta">
           <template v-if="paperStore.isPaperParsing(paper.id)">
@@ -288,6 +424,9 @@ onUnmounted(() => {
           </template>
           <template v-else-if="paperStore.isPaperQueued(paper.id)">
             <span class="parsing-text">{{ t('metadata.queued') }}</span>
+          </template>
+          <template v-else-if="graphStore.isPaperRecommending(paper.id)">
+            <span class="parsing-text">{{ t('graph.recommendLoading') }}</span>
           </template>
           <template v-else>
             {{ paper.authors[0] || '—' }}
@@ -308,10 +447,19 @@ onUnmounted(() => {
         class="context-menu"
         :style="{ left: contextMenuX + 'px', top: contextMenuY + 'px' }"
       >
-        <button class="context-menu-item" @click="handleCopyTitle">{{ t('library.copyTitle') }}</button>
-        <button class="context-menu-item" @click="handleReparse">{{ t('library.reparse') }}</button>
-        <div class="dropdown-divider" />
-        <button class="context-menu-item danger" @click="handleDelete">{{ t('library.deletePaper') }}</button>
+        <template v-if="isMultiSelected">
+          <div class="context-menu-header">{{ t('library.batchSelected', { count: selectedIds.size }) }}</div>
+          <button class="context-menu-item" @click="handleBatchReparse">{{ t('library.batchReparse') }}</button>
+          <button class="context-menu-item" @click="handleBatchExportCsv">{{ t('library.exportCsv') }}</button>
+          <div class="dropdown-divider" />
+          <button class="context-menu-item danger" @click="handleBatchDelete">{{ t('library.batchDelete') }}</button>
+        </template>
+        <template v-else>
+          <button class="context-menu-item" @click="handleCopyTitle">{{ t('library.copyTitle') }}</button>
+          <button class="context-menu-item" @click="handleReparse">{{ t('library.reparse') }}</button>
+          <div class="dropdown-divider" />
+          <button class="context-menu-item danger" @click="handleDelete">{{ t('library.deletePaper') }}</button>
+        </template>
       </div>
     </Teleport>
   </div>
@@ -571,12 +719,22 @@ onUnmounted(() => {
   transition: background $transition-fast;
 
   &:hover {
-    background: $color-panel;
+    background: var(--hover-bg);
   }
 
   &.selected {
-    background: $color-panel;
+    background: var(--selection-bg);
     border-left: 2px solid $color-text-primary;
+  }
+
+  &.multi-selected {
+    background: var(--selection-bg);
+  }
+
+  &.selected.multi-selected {
+    background: var(--selection-bg);
+    border-left: 2px solid $color-text-primary;
+    box-shadow: inset 0 0 0 1px var(--color-border);
   }
 }
 
@@ -644,6 +802,10 @@ onUnmounted(() => {
   background: var(--hover-bg) !important;
 }
 
+.recommending {
+  background: var(--hover-bg) !important;
+}
+
 .parsing-text {
   color: $color-text-primary;
   font-size: 12px;
@@ -666,6 +828,13 @@ onUnmounted(() => {
     background: $color-border;
     margin: 4px 0;
   }
+}
+
+.context-menu-header {
+  padding: 6px 14px;
+  font-size: 11px;
+  color: $color-text-disabled;
+  border-bottom: 1px solid $color-border;
 }
 
 .context-menu-item {

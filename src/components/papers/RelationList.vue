@@ -19,7 +19,6 @@ const paperStore = usePaperStore();
 const projectStore = useProjectStore();
 
 const showAddForm = ref(false);
-const isRecommending = ref(false);
 const targetId = ref('');
 const relationType = ref<RelationType>('supports');
 const evidence = ref('');
@@ -32,8 +31,12 @@ const recommendations = ref<Array<{
   evidence: string;
 }>>([]);
 
+const isRecommending = computed(() =>
+  graphStore.isPaperRecommending(props.paper.id)
+);
+
 const isAnalyzing = computed(() =>
-  graphStore.isAutoRecommending || paperStore.isAutoResolving
+  graphStore.isAutoRecommending || paperStore.isAutoResolving || isRecommending.value
 );
 
 const relatedRelations = computed(() =>
@@ -97,11 +100,11 @@ async function handleDeleteRelation(relationId: string) {
 
 async function handleRecommendRelations() {
   if (!projectStore.projectPath || isRecommending.value) return;
-  isRecommending.value = true;
+  graphStore.setPaperRecommending(props.paper.id, true);
   try {
     recommendations.value = await aiRecommendRelations(projectStore.projectPath);
   } finally {
-    isRecommending.value = false;
+    graphStore.setPaperRecommending(props.paper.id, false);
   }
 }
 
@@ -358,8 +361,10 @@ function selectTarget(id: string) {
 }
 
 .form-textarea {
-  min-height: 60px;
+  min-height: 80px;
+  max-height: 160px;
   resize: vertical;
+  overflow-y: auto;
 }
 
 .search-results {

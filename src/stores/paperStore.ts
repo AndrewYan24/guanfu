@@ -12,6 +12,7 @@ interface ParseProgressEvent {
   paperId: string;
   success: boolean;
   error?: string;
+  metadata?: any;
   done: number;
   total: number;
 }
@@ -157,6 +158,17 @@ export const usePaperStore = defineStore('paper', () => {
     parseErrors.value = [];
     parseProgress.value = { done: 0, total: newPapers.length };
 
+    // Safety timeout: force-clear progress if stuck beyond 200s
+    const safetyTimer = setTimeout(() => {
+      if (isAutoResolving.value) {
+        console.warn('[paperStore] Safety timeout: force-clearing resolve state');
+        isAutoResolving.value = false;
+        pendingPaperIds.value.clear();
+        parsingPaperIds.value.clear();
+        parseProgress.value = null;
+      }
+    }, 200000);
+
     // Read advanced settings
     const autoParse = settings.advanced?.autoParse ?? true;
 
@@ -166,16 +178,27 @@ export const usePaperStore = defineStore('paper', () => {
       parsingPaperIds.value.add(p.id);
     }
 
-    // Listen for progress events
+    // Listen for progress events — apply each result immediately
     let unlisten: UnlistenFn | null = null;
     try {
       unlisten = await listen<ParseProgressEvent>('parse_progress', (event) => {
-        const { paperId, success, error, done, total } = event.payload;
+        const { paperId, success, error, metadata, done, total } = event.payload;
         parseProgress.value = { done, total };
-        // Remove from parsing set as each completes
         parsingPaperIds.value.delete(paperId);
         pendingPaperIds.value.delete(paperId);
-        if (!success && error) {
+
+        if (success && metadata) {
+          const idx = papers.value.findIndex(p => p.id === paperId);
+          if (idx !== -1) {
+            if (metadata.title) papers.value[idx].title = metadata.title;
+            if (metadata.authors?.length) papers.value[idx].authors = metadata.authors;
+            if (metadata.year) papers.value[idx].year = metadata.year;
+            if (metadata.abstract) papers.value[idx].abstract = metadata.abstract;
+            papers.value[idx].metadata = { ...metadata, isAiGenerated: true, source: 'ai' };
+            papers.value[idx].updatedAt = new Date().toISOString();
+            parsedIds.push(paperId);
+          }
+        } else if (!success && error) {
           const paper = newPapers.find(p => p.id === paperId);
           parseErrors.value.push({
             paperId,
@@ -190,44 +213,40 @@ export const usePaperStore = defineStore('paper', () => {
 
     try {
       if (autoParse) {
-        // Batch parse — single project load/save on backend, all papers concurrent
+        // Batch parse — results are applied via parse_progress events as each completes
         const paperIds = newPapers.map(p => p.id);
-        const resultMap = await aiApi.aiParsePdfsBatch(projectStore.projectPath, paperIds);
+        await Promise.race([
+          aiApi.aiParsePdfsBatch(projectStore.projectPath, paperIds),
+          new Promise<Record<string, any>>((_, reject) =>
+            setTimeout(() => reject(new Error('Parse timeout after 180s')), 180000)
+          ),
+        ]);
 
-        // Apply results to local papers (resultMap is paperId → metadata)
-        for (const [paperId, metadata] of Object.entries(resultMap)) {
-          const idx = papers.value.findIndex(p => p.id === paperId);
-          if (idx === -1) continue;
-
-          if (metadata.title) papers.value[idx].title = metadata.title;
-          if (metadata.authors?.length) papers.value[idx].authors = metadata.authors;
-          if (metadata.year) papers.value[idx].year = metadata.year;
-          if (metadata.abstract) papers.value[idx].abstract = metadata.abstract;
-          papers.value[idx].metadata = {
-            ...metadata,
-            isAiGenerated: true,
-            source: 'ai',
-          };
-          papers.value[idx].updatedAt = new Date().toISOString();
-          parsedIds.push(paperId);
-        }
-
+        // Save after batch completes (individual results already applied via events)
         if (projectStore.currentProject) {
           projectStore.currentProject.papers = papers.value;
           projectStore.scheduleAutoSave();
         }
       }
 
+      // Clear parse progress immediately — don't wait for recommend to finish
+      unlisten?.();
+      unlisten = null;
+      isAutoResolving.value = false;
+      pendingPaperIds.value.clear();
+      parsingPaperIds.value.clear();
+      parseProgress.value = null;
+
       // Recommend relations even if parsing partially failed — use all papers with metadata
       const graphStore = useGraphStore();
       await graphStore.autoRecommendRelations(
         papers.value.length,
-        true,
         parsedIds.length > 0 ? parsedIds : undefined
       );
     } catch (e) {
       console.error('[paperStore] resolveAndRecommendRelations failed:', e);
     } finally {
+      clearTimeout(safetyTimer);
       unlisten?.();
       isAutoResolving.value = false;
       pendingPaperIds.value.clear();
@@ -343,6 +362,69 @@ export const usePaperStore = defineStore('paper', () => {
     parseErrors.value = [];
   }
 
+  async function batchDeletePapers(paperIds: string[]) {
+    const projectStore = useProjectStore();
+    if (!projectStore.projectPath) return;
+
+    for (const id of paperIds) {
+      await paperApi.deletePaper(projectStore.projectPath, id);
+    }
+    papers.value = papers.value.filter((p) => !paperIds.includes(p.id));
+    if (selectedPaperId.value && paperIds.includes(selectedPaperId.value)) {
+      selectedPaperId.value = null;
+    }
+    for (const id of paperIds) {
+      delete pdfScrollPositions.value[id];
+      delete pdfZoomLevels.value[id];
+    }
+    const graphStore = useGraphStore();
+    for (const id of paperIds) {
+      graphStore.removeRelationsForPaper(id);
+    }
+    if (projectStore.currentProject) {
+      projectStore.currentProject.papers = papers.value;
+      projectStore.currentProject.relations = graphStore.relations;
+      projectStore.scheduleAutoSave();
+    }
+    useChatStore().autoSyncEmbeddings(projectStore.projectPath);
+  }
+
+  async function batchReparsePapers(paperIds: string[]) {
+    const projectStore = useProjectStore();
+    if (!projectStore.projectPath) return;
+
+    for (const id of paperIds) {
+      parsingPaperIds.value.add(id);
+    }
+    try {
+      const resultMap = await aiApi.aiParsePdfsBatch(projectStore.projectPath, paperIds);
+      for (const id of paperIds) {
+        const metadata = resultMap[id];
+        if (!metadata) continue;
+        const idx = papers.value.findIndex(p => p.id === id);
+        if (idx === -1) continue;
+        if (metadata.title) papers.value[idx].title = metadata.title;
+        if (metadata.authors?.length) papers.value[idx].authors = metadata.authors;
+        if (metadata.year) papers.value[idx].year = metadata.year;
+        if (metadata.abstract) papers.value[idx].abstract = metadata.abstract;
+        papers.value[idx].metadata = {
+          ...metadata,
+          isAiGenerated: true,
+          source: 'ai',
+        };
+        papers.value[idx].updatedAt = new Date().toISOString();
+      }
+      if (projectStore.currentProject) {
+        projectStore.currentProject.papers = papers.value;
+        projectStore.scheduleAutoSave();
+      }
+    } finally {
+      for (const id of paperIds) {
+        parsingPaperIds.value.delete(id);
+      }
+    }
+  }
+
   return {
     papers,
     selectedPaperId,
@@ -369,6 +451,8 @@ export const usePaperStore = defineStore('paper', () => {
     updatePaper,
     deletePaper,
     reparsePaper,
+    batchDeletePapers,
+    batchReparsePapers,
     savePdfScrollPosition,
     getPdfScrollPosition,
     savePdfZoom,

@@ -30,6 +30,11 @@ export function papersToElements(
     // Controversial nodes get a size boost
     const controversyBonus = opposingCount >= 2 ? opposingCount * 4 : 0;
 
+    // Estimate label width to ensure node is large enough
+    // ~6.5px per char at 11px font (conservative), plus padding
+    const labelWidth = label.length * 6.5 + 16;
+    const minSize = Math.max(50, Math.ceil(labelWidth / 10) * 10);
+
     elements.push({
       data: {
         id: paper.id,
@@ -46,10 +51,10 @@ export function papersToElements(
       ]
         .filter(Boolean)
         .join(' '),
-      // Size based on relation count, with bonus for controversial nodes
+      // Size based on relation count and label length, with bonus for controversial nodes
       style: {
-        width: Math.max(40, 40 + relationCount * 4 + controversyBonus),
-        height: Math.max(40, 40 + relationCount * 4 + controversyBonus),
+        width: Math.max(minSize, 50 + relationCount * 4 + controversyBonus),
+        height: Math.max(minSize, 50 + relationCount * 4 + controversyBonus),
       },
     });
   }
@@ -112,7 +117,7 @@ export function getCytoscapeStyles(): cytoscape.StylesheetCSS[] {
         'text-valign': 'center',
         'text-halign': 'center',
         'text-wrap': 'wrap',
-        'text-max-width': '80px',
+        'text-max-width': '40px',
         'overlay-opacity': 0,
       },
     },

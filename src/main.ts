@@ -10,3 +10,8 @@ app.use(createPinia());
 app.use(router);
 app.use(i18n);
 app.mount('#app');
+
+// Disable right-click context menu in production builds
+if (import.meta.env.PROD) {
+  document.addEventListener('contextmenu', (e) => e.preventDefault());
+}

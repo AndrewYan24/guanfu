@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useGraphStore } from '@/stores/graphStore';
 
@@ -10,6 +11,25 @@ const emit = defineEmits<{
   exportPng: [];
   exportSvg: [];
 }>();
+
+const showExportMenu = ref(false);
+
+function handleExport(type: 'png' | 'svg') {
+  showExportMenu.value = false;
+  if (type === 'png') emit('exportPng');
+  else emit('exportSvg');
+}
+
+function handleClickOutside(e: MouseEvent) {
+  const target = e.target as HTMLElement;
+  if (!target.closest('.toolbar-right')) {
+    showExportMenu.value = false;
+  }
+}
+
+import { onMounted, onUnmounted } from 'vue';
+onMounted(() => document.addEventListener('click', handleClickOutside));
+onUnmounted(() => document.removeEventListener('click', handleClickOutside));
 </script>
 
 <template>
@@ -45,16 +65,28 @@ const emit = defineEmits<{
           <path d="M5 6V4a2 2 0 014 0" stroke="currentColor" stroke-width="1.2" fill="none"/>
         </svg>
       </button>
-      <button class="toolbar-btn" @click="emit('exportPng')" :title="t('graph.exportPng')">
+      <button class="toolbar-btn" @click="handleExport('png')" :title="t('graph.export')">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M2 10v2h10v-2M7 2v7M4 6l3 3 3-3" stroke="currentColor" stroke-width="1.2"/>
         </svg>
       </button>
-      <button class="toolbar-btn" @click="emit('exportSvg')" title="SVG">
+      <button class="toolbar-btn dropdown-trigger" @click="showExportMenu = !showExportMenu" :title="t('graph.exportOptions')">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <text x="3" y="11" font-size="9" font-weight="600" fill="currentColor" font-family="sans-serif">S</text>
+          <circle cx="7" cy="3" r="1" fill="currentColor"/>
+          <circle cx="7" cy="7" r="1" fill="currentColor"/>
+          <circle cx="7" cy="11" r="1" fill="currentColor"/>
         </svg>
       </button>
+      <div v-if="showExportMenu" class="export-menu">
+        <button class="export-menu-item" @click="handleExport('png')">
+          <span class="export-format">PNG</span>
+          <span class="export-desc">{{ t('graph.exportPng') }}</span>
+        </button>
+        <button class="export-menu-item" @click="handleExport('svg')">
+          <span class="export-format">SVG</span>
+          <span class="export-desc">{{ t('graph.exportSvg') }}</span>
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -90,6 +122,7 @@ const emit = defineEmits<{
   display: flex;
   align-items: center;
   gap: $spacing-xs;
+  position: relative;
 }
 
 .toolbar-btn {
@@ -116,5 +149,59 @@ const emit = defineEmits<{
     color: $color-text-primary;
     border-color: $color-node-border;
   }
+
+  &.dropdown-trigger {
+    width: 20px;
+  }
+}
+
+.export-menu {
+  position: absolute;
+  top: 100%;
+  right: $spacing-md;
+  margin-top: 4px;
+  background: $color-bg;
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
+  box-shadow: $shadow-sm;
+  min-width: 140px;
+  z-index: 20;
+}
+
+.export-menu-item {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  width: 100%;
+  padding: $spacing-xs $spacing-md;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: $font-family;
+  text-align: left;
+
+  &:hover {
+    background: $color-panel;
+  }
+
+  &:first-child {
+    border-radius: $radius-sm $radius-sm 0 0;
+  }
+
+  &:last-child {
+    border-radius: 0 0 $radius-sm $radius-sm;
+  }
+}
+
+.export-format {
+  font-size: 12px;
+  font-weight: 600;
+  color: $color-text-primary;
+  min-width: 28px;
+}
+
+.export-desc {
+  font-size: 11px;
+  color: $color-text-disabled;
 }
 </style>

@@ -100,7 +100,7 @@ function typeLabel(type: string): string {
         <button
           class="rerun-btn"
           :disabled="insightStore.isLoading"
-          @click="triggerAutoRun()"
+          @click="projectStore.projectPath && insightStore.runAnalysis(projectStore.projectPath)"
         >
           {{ insightStore.isLoading ? t('insights.analyzing') : t('graph.recommendAgain') }}
         </button>

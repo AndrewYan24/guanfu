@@ -96,6 +96,11 @@ export default {
     searchPaper: '搜索文献...',
     relationEvidencePlaceholder: '描述这两篇文献之间的关系...',
     unknownPaper: '未知文献',
+    timeView: '时间视图',
+    forceView: '力导向视图',
+    play: '播放',
+    pause: '暂停',
+    allYears: '全部年份',
   },
   relations: {
     supports: '支持',

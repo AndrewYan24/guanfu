@@ -96,6 +96,11 @@ export default {
     searchPaper: 'Serĉi artikolojn...',
     relationEvidencePlaceholder: 'Priskribu la rilaton inter ĉi tiuj artikoloj...',
     unknownPaper: 'Nekonata artikolo',
+    timeView: 'Tempa vido',
+    forceView: 'Forta aranĝo',
+    play: 'Ludi',
+    pause: 'Paŭzi',
+    allYears: 'Ĉiuj jaroj',
   },
   relations: {
     supports: 'Subtenas',

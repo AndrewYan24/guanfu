@@ -1,10 +1,55 @@
 import type { Paper, Relation } from '@/types';
 import type { ElementDefinition } from 'cytoscape';
+import { louvain } from './louvain';
+
+// Low-saturation palette for cluster coloring
+const CLUSTER_COLORS_LIGHT = [
+  '#D8D8D8', // gray
+  '#C5D0DC', // gray-blue
+  '#D4C9B9', // gray-brown
+  '#C4D1C4', // gray-green
+  '#CFC4D1', // gray-purple
+  '#D6CBBA', // gray-orange
+];
+
+const CLUSTER_COLORS_DARK = [
+  '#555555', // gray
+  '#4A5A6B', // steel blue
+  '#6B5E4E', // warm brown
+  '#4E6B55', // muted green
+  '#5E4E6B', // muted purple
+  '#6B5A45', // dark amber
+];
+
+export function getClusterColor(clusterId: number): string {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const palette = isDark ? CLUSTER_COLORS_DARK : CLUSTER_COLORS_LIGHT;
+  return palette[clusterId % palette.length];
+}
+
+/**
+ * Detect communities in the paper-relation graph using Louvain algorithm.
+ * Returns a map from paperId to clusterId.
+ * Returns empty map if fewer than 3 papers (clustering is pointless).
+ */
+export function detectClusters(papers: Paper[], relations: Relation[]): Map<string, number> {
+  if (papers.length < 3) return new Map();
+
+  const paperIds = papers.map(p => p.id);
+  const edges: [string, string, number][] = relations
+    .filter(r => papers.some(p => p.id === r.sourceId) && papers.some(p => p.id === r.targetId))
+    .map(r => [r.sourceId, r.targetId, 1] as [string, string, number]);
+
+  if (edges.length === 0) return new Map();
+
+  return louvain(paperIds, edges);
+}
 
 export function papersToElements(
   papers: Paper[],
   relations: Relation[],
-  labels?: Record<string, string>
+  labels?: Record<string, string>,
+  clusterMap?: Map<string, number>
 ): ElementDefinition[] {
   const elements: ElementDefinition[] = [];
 
@@ -35,6 +80,8 @@ export function papersToElements(
     const labelWidth = label.length * 6.5 + 16;
     const minSize = Math.max(50, Math.ceil(labelWidth / 10) * 10);
 
+    const cluster = clusterMap?.get(paper.id);
+
     elements.push({
       data: {
         id: paper.id,
@@ -44,10 +91,12 @@ export function papersToElements(
         year: paper.year,
         coreClaim: paper.metadata?.coreClaim ?? '',
         isControversial: opposingCount >= 2,
+        cluster: cluster ?? -1,
       },
       classes: [
         opposingCount >= 2 ? 'controversial' : '',
         paper.metadata?.isAiGenerated ? 'ai-parsed' : '',
+        cluster !== undefined ? `cluster-${cluster}` : '',
       ]
         .filter(Boolean)
         .join(' '),
@@ -55,6 +104,7 @@ export function papersToElements(
       style: {
         width: Math.max(minSize, 50 + relationCount * 4 + controversyBonus),
         height: Math.max(minSize, 50 + relationCount * 4 + controversyBonus),
+        ...(cluster !== undefined ? { 'background-color': getClusterColor(cluster) } : {}),
       },
     });
   }
@@ -206,6 +256,18 @@ export function getCytoscapeStyles(): cytoscape.StylesheetCSS[] {
       selector: 'edge:selected',
       css: {
         width: 3,
+      },
+    },
+    {
+      selector: 'node.dimmed',
+      css: {
+        opacity: 0.3,
+      },
+    },
+    {
+      selector: 'edge.dimmed',
+      css: {
+        opacity: 0.15,
       },
     },
   ];

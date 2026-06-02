@@ -96,6 +96,11 @@ export default {
     searchPaper: '搜尋文獻...',
     relationEvidencePlaceholder: '描述這兩篇文獻之間的關係...',
     unknownPaper: '未知文獻',
+    timeView: '時間視圖',
+    forceView: '力導向視圖',
+    play: '播放',
+    pause: '暫停',
+    allYears: '全部年份',
   },
   relations: {
     supports: '支援',

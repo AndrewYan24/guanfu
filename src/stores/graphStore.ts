@@ -9,6 +9,7 @@ export const useGraphStore = defineStore('graph', () => {
   const relations = ref<Relation[]>([]);
   const graphLayout = ref<GraphLayout>({ locked: false, positions: {} });
   const selectedRelationId = ref<string | null>(null);
+  const clusterMap = ref<Map<string, number>>(new Map());
   const isAutoRecommending = ref(false);
   const recommendingPaperIds = ref(new Set<string>());
 
@@ -186,6 +187,7 @@ export const useGraphStore = defineStore('graph', () => {
     relations,
     graphLayout,
     selectedRelationId,
+    clusterMap,
     isAutoRecommending,
     recommendingPaperIds,
     isPaperRecommending,

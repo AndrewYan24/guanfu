@@ -96,6 +96,11 @@ export default {
     searchPaper: 'Search papers...',
     relationEvidencePlaceholder: 'Describe the relationship between these papers...',
     unknownPaper: 'Unknown paper',
+    timeView: 'Timeline',
+    forceView: 'Force layout',
+    play: 'Play',
+    pause: 'Pause',
+    allYears: 'All years',
   },
   relations: {
     supports: 'Supports',

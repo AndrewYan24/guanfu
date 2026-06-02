@@ -4,13 +4,14 @@ import cytoscape, { Core, NodeSingular, EdgeSingular, ElementDefinition } from '
 import { useI18n } from 'vue-i18n';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
-import { papersToElements, getCytoscapeStyles } from '@/utils/graphTransform';
+import { papersToElements, getCytoscapeStyles, detectClusters } from '@/utils/graphTransform';
 import { relationTypes } from '@/types/relation';
 import { usePaperStore } from '@/stores/paperStore';
 import { useGraphStore } from '@/stores/graphStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useToast } from '@/composables/useToast';
+import TimeSlider from './TimeSlider.vue';
 
 const emit = defineEmits<{
   nodeClick: [id: string];
@@ -32,6 +33,27 @@ const ZOOM_MAX = 3;
 const MIN_NODE_DISTANCE = 120;
 
 const zoomPercent = computed(() => Math.round(currentZoom.value * 100));
+
+// --- Time dimension ---
+const isTimeView = ref(false);
+const timeRange = ref<[number, number]>([0, 0]);
+
+const yearBounds = computed(() => {
+  const years = paperStore.papers.map(p => p.year).filter((y): y is number => y != null);
+  if (years.length === 0) return { min: 2000, max: 2025 };
+  return { min: Math.min(...years), max: Math.max(...years) };
+});
+
+// Papers visible within the time range
+const visiblePaperIds = computed(() => {
+  if (!isTimeView.value) return null; // null means all visible
+  const [start, end] = timeRange.value;
+  return new Set(
+    paperStore.papers
+      .filter(p => p.year != null && p.year >= start && p.year <= end)
+      .map(p => p.id)
+  );
+});
 
 const relLabels = computed(() => {
   const map: Record<string, string> = {};
@@ -86,7 +108,9 @@ function initCytoscape() {
   });
 
   cy.value.on('tap', 'node', (e) => {
-    emit('nodeClick', (e.target as NodeSingular).id());
+    const nodeId = (e.target as NodeSingular).id();
+    emit('nodeClick', nodeId);
+    highlightCluster(nodeId);
   });
 
   cy.value.on('tap', 'edge', (e) => {
@@ -97,6 +121,7 @@ function initCytoscape() {
     if (e.target === cy.value) {
       emit('nodeClick', '');
       emit('edgeClick', '');
+      clearClusterHighlight();
     }
   });
 
@@ -111,10 +136,15 @@ function initCytoscape() {
 function syncElements() {
   if (!cy.value) return;
 
-  const elements = papersToElements(paperStore.papers, graphStore.relations, relLabels.value);
-  const positions = graphStore.graphLayout.positions;
+  // Detect clusters
+  const clusters = detectClusters(paperStore.papers, graphStore.relations);
+  graphStore.clusterMap = clusters;
 
-  // Separate nodes and edges
+  const elements = papersToElements(paperStore.papers, graphStore.relations, relLabels.value, clusters);
+  const positions = graphStore.graphLayout.positions;
+  const visibleIds = visiblePaperIds.value;
+
+  // Separate nodes and edges, apply time filtering
   const desiredNodes: ElementDefinition[] = [];
   const desiredEdges: ElementDefinition[] = [];
   const nodeIds = new Set<string>();
@@ -122,9 +152,16 @@ function syncElements() {
 
   for (const el of elements) {
     if ('source' in el.data && 'target' in el.data) {
+      // Edge: only show if both endpoints are visible
+      const src = el.data.source as string;
+      const tgt = el.data.target as string;
+      if (visibleIds && (!visibleIds.has(src) || !visibleIds.has(tgt))) continue;
       desiredEdges.push(el);
       if (el.data.id) edgeIds.add(el.data.id);
     } else {
+      // Node: filter by time range
+      const nodeId = el.data.id as string;
+      if (visibleIds && !visibleIds.has(nodeId)) continue;
       desiredNodes.push(el);
       if (el.data.id) nodeIds.add(el.data.id);
     }
@@ -140,11 +177,19 @@ function syncElements() {
   cy.value.add(desiredNodes);
   cy.value.add(desiredEdges);
 
-  // Restore saved positions
-  cy.value.nodes().forEach((node) => {
-    const pos = positions[node.id()];
-    if (pos) node.position(pos);
-  });
+  // Restore saved positions (skip in time view mode)
+  if (!isTimeView.value) {
+    cy.value.nodes().forEach((node) => {
+      const pos = positions[node.id()];
+      if (pos) node.position(pos);
+    });
+  }
+
+  // In time view, apply year-based X positions
+  if (isTimeView.value) {
+    applyTimeLayout();
+    return;
+  }
 
   // Check what needs layout
   const unpositioned = cy.value.nodes().filter((n) => !positions[n.id()]);
@@ -158,6 +203,58 @@ function syncElements() {
   if (layoutRunning) return;
 
   startLayout(unpositioned);
+}
+
+// --- Time view layout ---
+function applyTimeLayout() {
+  if (!cy.value || cy.value.nodes().length === 0) return;
+
+  const { min, max } = yearBounds.value;
+  const span = max - min || 1;
+  const nodes = cy.value.nodes();
+  const ext = cy.value.extent();
+  const canvasW = ext.w || 800;
+  const canvasH = ext.h || 600;
+  const padding = 80;
+  const usableW = canvasW - padding * 2;
+  const usableH = canvasH - padding * 2;
+  const cx = (ext.x1 + ext.x2) / 2 || canvasW / 2;
+  const cy_ = (ext.y1 + ext.y2) / 2 || canvasH / 2;
+  const leftEdge = cx - usableW / 2;
+  const topEdge = cy_ - usableH / 2;
+
+  // Assign X by year, spread Y vertically
+  const byYear: Record<number, typeof nodes> = {};
+  nodes.forEach((node) => {
+    const year = node.data('year') ?? min;
+    if (!byYear[year]) byYear[year] = cy.value!.collection();
+    byYear[year] = byYear[year].union(node);
+  });
+
+  cy.value.batch(() => {
+    for (const [yearStr, group] of Object.entries(byYear)) {
+      const year = parseInt(yearStr);
+      const x = leftEdge + ((year - min) / span) * usableW;
+      group.forEach((node: NodeSingular, i: number) => {
+        const count = group.length;
+        const y = count === 1
+          ? cy_
+          : topEdge + (i / (count - 1)) * usableH;
+        node.position({ x, y });
+      });
+    }
+  });
+
+  // Fit view
+  cy.value.fit(undefined, 40);
+  if (cy.value.zoom() > 1.5) cy.value.zoom(1.5);
+  currentZoom.value = cy.value.zoom();
+
+  // Save positions
+  cy.value.nodes().forEach((node) => {
+    graphStore.graphLayout.positions[node.id()] = { ...node.position() };
+  });
+  graphStore.saveLayout();
 }
 
 function startLayout(unpositioned: cytoscape.NodeCollection) {
@@ -292,6 +389,41 @@ function enforceMinDistance() {
   }
 }
 
+// --- Cluster highlighting ---
+function highlightCluster(nodeId: string) {
+  if (!cy.value) return;
+  const cluster = graphStore.clusterMap.get(nodeId);
+  if (cluster === undefined) return;
+
+  cy.value.batch(() => {
+    cy.value!.nodes().forEach((node) => {
+      const nodeCluster = graphStore.clusterMap.get(node.id());
+      if (nodeCluster === cluster) {
+        node.removeClass('dimmed');
+      } else {
+        node.addClass('dimmed');
+      }
+    });
+    cy.value!.edges().forEach((edge) => {
+      const srcCluster = graphStore.clusterMap.get(edge.source().id());
+      const tgtCluster = graphStore.clusterMap.get(edge.target().id());
+      if (srcCluster === cluster && tgtCluster === cluster) {
+        edge.removeClass('dimmed');
+      } else {
+        edge.addClass('dimmed');
+      }
+    });
+  });
+}
+
+function clearClusterHighlight() {
+  if (!cy.value) return;
+  cy.value.batch(() => {
+    cy.value!.nodes().removeClass('dimmed');
+    cy.value!.edges().removeClass('dimmed');
+  });
+}
+
 // --- Debounced schedule ---
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -307,6 +439,9 @@ watch(
   () => [paperStore.papers.length, graphStore.relations.length],
   () => scheduleSync()
 );
+
+// Re-sync when time view toggles
+watch(isTimeView, () => scheduleSync());
 
 // Re-sync when paper metadata changes (e.g. after AI parse updates title/authors)
 const paperLabelKey = computed(() =>
@@ -325,6 +460,8 @@ onMounted(() => {
     for (const m of mutations) {
       if (m.attributeName === 'data-theme') {
         if (cy.value) cy.value.style(getCytoscapeStyles() as any);
+        // Re-sync to update inline cluster colors for new theme
+        scheduleSync();
         break;
       }
     }
@@ -378,6 +515,21 @@ function fitToScreen() {
   graphStore.graphLayout.zoom = currentZoom.value;
   graphStore.graphLayout.pan = { ...cy.value.pan() };
   graphStore.saveLayout();
+}
+
+// --- Time view ---
+function toggleTimeView() {
+  isTimeView.value = !isTimeView.value;
+  if (isTimeView.value) {
+    // Reset range to full span
+    timeRange.value = [yearBounds.value.min, yearBounds.value.max];
+  }
+  scheduleSync();
+}
+
+function onTimeRangeChange(range: [number, number]) {
+  timeRange.value = range;
+  scheduleSync();
 }
 
 // --- Export ---
@@ -537,40 +689,60 @@ async function exportSvg() {
   toast.show(t('common.exported'));
 }
 
-defineExpose({ runLayout, exportPng, exportSvg });
+defineExpose({ runLayout, exportPng, exportSvg, toggleTimeView });
 </script>
 
 <template>
   <div class="graph-canvas-wrapper">
-    <div ref="containerRef" class="graph-canvas" />
-    <div class="zoom-controls">
-      <button class="zoom-btn" @click="zoomOut" :title="t('graph.zoomOut')">−</button>
-      <input
-        type="range"
-        class="zoom-slider"
-        :min="ZOOM_MIN"
-        :max="ZOOM_MAX"
-        :step="0.05"
-        :value="currentZoom"
-        @input="onZoomSlider"
-      />
-      <button class="zoom-btn" @click="zoomIn" :title="t('graph.zoomIn')">+</button>
-      <span class="zoom-label">{{ zoomPercent }}%</span>
-      <button class="zoom-btn fit-btn" @click="fitToScreen" :title="t('graph.fitCanvas')">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path d="M2 5V2h3M9 2h3v3M12 9v3H9M5 12H2V9" stroke="currentColor" stroke-width="1.2"/>
-        </svg>
-      </button>
-      <button class="zoom-btn layout-btn" @click="runLayout" :title="t('graph.autoArrange')">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <circle cx="4" cy="4" r="1.8" stroke="currentColor" stroke-width="1.2" fill="none"/>
-          <circle cx="10" cy="4" r="1.8" stroke="currentColor" stroke-width="1.2" fill="none"/>
-          <circle cx="7" cy="10" r="1.8" stroke="currentColor" stroke-width="1.2" fill="none"/>
-          <line x1="5.2" y1="5" x2="5.8" y2="8.5" stroke="currentColor" stroke-width="1"/>
-          <line x1="8.8" y1="5" x2="8.2" y2="8.5" stroke="currentColor" stroke-width="1"/>
-        </svg>
-      </button>
+    <div ref="containerRef" class="graph-canvas">
+      <div class="zoom-controls">
+        <button
+          class="zoom-btn time-toggle-btn"
+          :class="{ active: isTimeView }"
+          @click="toggleTimeView"
+          :title="isTimeView ? t('graph.forceView') : t('graph.timeView')"
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="7" y1="4" x2="7" y2="7" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="7" y1="7" x2="9.5" y2="8.5" stroke="currentColor" stroke-width="1.2"/>
+          </svg>
+        </button>
+        <div class="zoom-divider" />
+        <button class="zoom-btn" @click="zoomOut" :title="t('graph.zoomOut')">&#x2212;</button>
+        <input
+          type="range"
+          class="zoom-slider"
+          :min="ZOOM_MIN"
+          :max="ZOOM_MAX"
+          :step="0.05"
+          :value="currentZoom"
+          @input="onZoomSlider"
+        />
+        <button class="zoom-btn" @click="zoomIn" :title="t('graph.zoomIn')">+</button>
+        <span class="zoom-label">{{ zoomPercent }}%</span>
+        <button class="zoom-btn fit-btn" @click="fitToScreen" :title="t('graph.fitCanvas')">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M2 5V2h3M9 2h3v3M12 9v3H9M5 12H2V9" stroke="currentColor" stroke-width="1.2"/>
+          </svg>
+        </button>
+        <button class="zoom-btn layout-btn" @click="runLayout" :title="t('graph.autoArrange')">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="4" cy="4" r="1.8" stroke="currentColor" stroke-width="1.2" fill="none"/>
+            <circle cx="10" cy="4" r="1.8" stroke="currentColor" stroke-width="1.2" fill="none"/>
+            <circle cx="7" cy="10" r="1.8" stroke="currentColor" stroke-width="1.2" fill="none"/>
+            <line x1="5.2" y1="5" x2="5.8" y2="8.5" stroke="currentColor" stroke-width="1"/>
+            <line x1="8.8" y1="5" x2="8.2" y2="8.5" stroke="currentColor" stroke-width="1"/>
+          </svg>
+        </button>
+      </div>
     </div>
+    <TimeSlider
+      v-if="isTimeView"
+      :min-year="yearBounds.min"
+      :max-year="yearBounds.max"
+      @update:range="onTimeRangeChange"
+    />
   </div>
 </template>
 
@@ -579,11 +751,15 @@ defineExpose({ runLayout, exportPng, exportSvg });
   flex: 1;
   position: relative;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .graph-canvas {
   width: 100%;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
+  position: relative;
 }
 
 .zoom-controls {
@@ -660,5 +836,23 @@ defineExpose({ runLayout, exportPng, exportSvg });
 
 .fit-btn svg {
   color: inherit;
+}
+
+.time-toggle-btn {
+  &.active {
+    background: $color-text-primary;
+    color: $color-bg;
+
+    &:hover {
+      background: $color-text-secondary;
+    }
+  }
+}
+
+.zoom-divider {
+  width: 1px;
+  height: 16px;
+  background: $color-border;
+  margin: 0 2px;
 }
 </style>

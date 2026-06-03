@@ -491,69 +491,66 @@ function scrollTo(id: string) {
         <p class="section-desc">{{ t('settings.ocrDesc') }}</p>
 
         <div class="ocr-options">
-          <label class="ocr-option" :class="{ active: ocrMethod === 'local' }">
-            <input type="radio" value="local" v-model="ocrMethod" />
-            <div class="ocr-info">
-              <span class="ocr-name">{{ t('settings.localOcr') }}</span>
-              <span class="ocr-hint">{{ t('settings.localOcrHint') }}</span>
+          <div class="ocr-option" :class="{ active: ocrMethod === 'local' }">
+            <label class="ocr-option-header">
+              <input type="radio" value="local" v-model="ocrMethod" />
+              <div class="ocr-info">
+                <span class="ocr-name">{{ t('settings.localOcr') }}</span>
+                <span class="ocr-hint">{{ t('settings.localOcrHint') }}</span>
+              </div>
+            </label>
+            <div v-if="ocrMethod === 'local'" class="ocr-sub">
+              <label class="ocr-sub-option" :class="{ active: ocrModelMode === 'mobile' }">
+                <input type="radio" value="mobile" v-model="ocrModelMode" />
+                <span class="ocr-sub-label">{{ t('settings.ocrModelMobile') }}</span>
+                <span class="ocr-sub-hint">{{ t('settings.ocrModelMobileHint') }}</span>
+              </label>
+              <label class="ocr-sub-option" :class="{ active: ocrModelMode === 'server' }">
+                <input type="radio" value="server" v-model="ocrModelMode" />
+                <span class="ocr-sub-label">
+                  {{ t('settings.ocrModelServer') }}
+                  <span v-if="serverModelsDownloaded" class="model-badge downloaded">{{ t('settings.ocrModelDownloaded') }}</span>
+                  <span v-else-if="isDownloadingModels" class="model-badge downloading">{{ t('settings.ocrModelDownloading') }}</span>
+                  <span v-else class="model-badge not-downloaded">{{ t('settings.ocrModelNotDownloaded') }}</span>
+                </span>
+                <span class="ocr-sub-hint">{{ t('settings.ocrModelServerHint') }}</span>
+              </label>
+              <div v-if="ocrModelMode === 'server' && !serverModelsDownloaded && !isDownloadingModels" class="model-download-row">
+                <button class="btn-secondary btn-sm" @click="handleDownloadServerModels">
+                  {{ t('settings.ocrModelDownload') }}
+                </button>
+              </div>
             </div>
-          </label>
-          <label class="ocr-option" :class="{ active: ocrMethod === 'mineru' }">
-            <input type="radio" value="mineru" v-model="ocrMethod" />
-            <div class="ocr-info">
-              <span class="ocr-name">{{ t('settings.mineru') }}</span>
-              <span class="ocr-hint">{{ t('settings.mineruHint') }}</span>
-            </div>
-          </label>
-        </div>
-
-        <div v-if="ocrMethod === 'local'" class="model-options">
-          <label class="model-option" :class="{ active: ocrModelMode === 'mobile' }">
-            <input type="radio" value="mobile" v-model="ocrModelMode" />
-            <div class="model-info">
-              <span class="model-name">{{ t('settings.ocrModelMobile') }}</span>
-              <span class="model-hint">{{ t('settings.ocrModelMobileHint') }}</span>
-            </div>
-          </label>
-          <label class="model-option" :class="{ active: ocrModelMode === 'server' }">
-            <input type="radio" value="server" v-model="ocrModelMode" />
-            <div class="model-info">
-              <span class="model-name">
-                {{ t('settings.ocrModelServer') }}
-                <span v-if="serverModelsDownloaded" class="model-badge downloaded">{{ t('settings.ocrModelDownloaded') }}</span>
-                <span v-else-if="isDownloadingModels" class="model-badge downloading">{{ t('settings.ocrModelDownloading') }}</span>
-                <span v-else class="model-badge not-downloaded">{{ t('settings.ocrModelNotDownloaded') }}</span>
-              </span>
-              <span class="model-hint">{{ t('settings.ocrModelServerHint') }}</span>
-            </div>
-          </label>
-          <div v-if="ocrModelMode === 'server' && !serverModelsDownloaded && !isDownloadingModels" class="model-download-row">
-            <button class="btn-secondary btn-sm" @click="handleDownloadServerModels">
-              {{ t('settings.ocrModelDownload') }}
-            </button>
           </div>
-        </div>
-
-        <div v-if="ocrMethod === 'mineru'" class="mineru-fields">
-          <div class="field">
-            <label>{{ t('settings.apiKey') }}</label>
-            <input
-              type="password"
-              v-model="mineru.apiKey"
-              :placeholder="mineru.maskedKey || 'MinerU API Key'"
-              class="input input-api-key"
-            />
+          <div class="ocr-option" :class="{ active: ocrMethod === 'mineru' }">
+            <label class="ocr-option-header">
+              <input type="radio" value="mineru" v-model="ocrMethod" />
+              <div class="ocr-info">
+                <span class="ocr-name">{{ t('settings.mineru') }}</span>
+                <span class="ocr-hint">{{ t('settings.mineruHint') }}</span>
+              </div>
+            </label>
+            <div v-if="ocrMethod === 'mineru'" class="ocr-sub">
+              <div class="field">
+                <label>{{ t('settings.apiKey') }}</label>
+                <input
+                  type="password"
+                  v-model="mineru.apiKey"
+                  :placeholder="mineru.maskedKey || 'MinerU API Key'"
+                  class="input input-api-key"
+                />
+              </div>
+              <div class="field">
+                <label>{{ t('settings.baseUrl') }}</label>
+                <input
+                  type="text"
+                  v-model="mineru.apiBase"
+                  placeholder="https://mineru.net/api"
+                  class="input"
+                />
+              </div>
+            </div>
           </div>
-          <div class="field">
-            <label>{{ t('settings.baseUrl') }}</label>
-            <input
-              type="text"
-              v-model="mineru.apiBase"
-              placeholder="https://mineru.net/api"
-              class="input"
-            />
-          </div>
-        </div>
       </section>
 
       <details id="advanced" class="settings-section advanced-section">
@@ -959,27 +956,31 @@ function scrollTo(id: string) {
 }
 
 .ocr-option {
-  display: flex;
-  align-items: center;
-  gap: $spacing-md;
   border: 1px solid $color-border;
   border-radius: $radius-sm;
   padding: $spacing-md $spacing-lg;
-  cursor: pointer;
   transition: border-color $transition-fast;
 
   &.active {
     border-color: $color-node-border;
   }
+}
 
-  input[type="radio"] {
-    accent-color: $color-text-primary;
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-    margin: 0;
-    cursor: pointer;
-  }
+.ocr-option-header {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  cursor: pointer;
+}
+
+.ocr-option > input[type="radio"],
+.ocr-option-header input[type="radio"] {
+  accent-color: $color-text-primary;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  margin: 0;
+  cursor: pointer;
 }
 
 .ocr-info {
@@ -998,55 +999,50 @@ function scrollTo(id: string) {
   color: $color-text-disabled;
 }
 
-.model-options {
+.ocr-sub {
+  margin-top: $spacing-md;
+  padding-top: $spacing-md;
+  border-top: 1px solid $color-border;
   display: flex;
   flex-direction: column;
-  gap: $spacing-sm;
-  margin-top: $spacing-md;
-  padding: $spacing-lg;
-  border: 1px solid $color-border;
-  border-radius: $radius-sm;
+  gap: $spacing-xs;
 }
 
-.model-option {
+.ocr-sub-option {
   display: flex;
-  align-items: center;
-  gap: $spacing-md;
-  padding: $spacing-sm 0;
+  align-items: baseline;
+  gap: $spacing-sm;
+  padding: $spacing-xs 0;
   cursor: pointer;
-
-  &.active .model-name {
-    color: $color-text-primary;
-  }
+  flex-wrap: wrap;
 
   input[type="radio"] {
     accent-color: $color-text-primary;
-    width: 14px;
-    height: 14px;
+    width: 13px;
+    height: 13px;
     flex-shrink: 0;
     margin: 0;
     cursor: pointer;
   }
 }
 
-.model-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.model-name {
-  font-size: 13px;
+.ocr-sub-label {
+  font-size: 12px;
   font-weight: 500;
   color: $color-text-secondary;
   display: flex;
   align-items: center;
-  gap: $spacing-sm;
+  gap: 6px;
+
+  .ocr-sub-option.active & {
+    color: $color-text-primary;
+  }
 }
 
-.model-hint {
+.ocr-sub-hint {
   font-size: 11px;
   color: $color-text-disabled;
+  padding-left: 21px; // align with radio + gap
 }
 
 .model-badge {
@@ -1054,6 +1050,7 @@ function scrollTo(id: string) {
   padding: 1px 6px;
   border-radius: 3px;
   font-weight: 400;
+  white-space: nowrap;
 
   &.downloaded {
     background: rgba(39, 174, 96, 0.1);
@@ -1072,7 +1069,8 @@ function scrollTo(id: string) {
 }
 
 .model-download-row {
-  padding-top: $spacing-sm;
+  padding-top: $spacing-xs;
+  padding-left: 21px;
 }
 
 .theme-options {
@@ -1154,16 +1152,6 @@ function scrollTo(id: string) {
 .lang-name {
   font-size: 13px;
   font-weight: 500;
-}
-
-.mineru-fields {
-  display: flex;
-  flex-direction: column;
-  gap: $spacing-md;
-  margin-top: $spacing-md;
-  padding: $spacing-lg;
-  border: 1px solid $color-border;
-  border-radius: $radius-sm;
 }
 
 .embedding-fields {

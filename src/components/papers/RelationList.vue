@@ -363,7 +363,7 @@ function selectTarget(id: string) {
 .form-textarea {
   min-height: 80px;
   max-height: 160px;
-  resize: vertical;
+  resize: none;
   overflow-y: auto;
 }
 

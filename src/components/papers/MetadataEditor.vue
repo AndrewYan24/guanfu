@@ -285,6 +285,8 @@ async function handleParse() {
 }
 
 .field-input {
+  width: 100%;
+  box-sizing: border-box;
   padding: $spacing-sm $spacing-md;
   border: 1px solid $color-border;
   border-radius: $radius-sm;
@@ -305,7 +307,9 @@ async function handleParse() {
 
 .multiline {
   min-height: 80px;
+  max-height: 200px;
   resize: vertical;
+  overflow-y: auto;
   line-height: 1.6;
 }
 </style>

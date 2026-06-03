@@ -140,6 +140,8 @@ pub async fn ai_parse_pdfs_batch(
     let sem = Arc::new(tokio::sync::Semaphore::new(concurrency));
     let mut handles = Vec::new();
 
+    eprintln!("[ai_parse] 开始解析 {} 篇论文, 并发数={}", total, concurrency);
+
     for (paper_id, pdf_path, fallback_text) in work_items {
         let sem = sem.clone();
         let s = settings.clone();
@@ -219,6 +221,7 @@ pub async fn ai_parse_pdfs_batch(
     // Save once at the end
     project_service::save_project(&project)?;
 
+    eprintln!("[ai_parse] 完成: {} 成功, {} 失败", results.len(), failed_ids.len());
     Ok(results)
 }
 

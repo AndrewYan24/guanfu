@@ -4,7 +4,7 @@ import cytoscape, { Core, NodeSingular, EdgeSingular, ElementDefinition } from '
 import { useI18n } from 'vue-i18n';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
-import { papersToElements, getCytoscapeStyles, detectClusters } from '@/utils/graphTransform';
+import { papersToElements, getCytoscapeStyles, detectClusters, getClusterColor } from '@/utils/graphTransform';
 import { relationTypes } from '@/types/relation';
 import { usePaperStore } from '@/stores/paperStore';
 import { useGraphStore } from '@/stores/graphStore';
@@ -556,6 +556,19 @@ function pickExportSize(bbW: number, bbH: number) {
 function exportPng() {
   if (!cy.value || cy.value.nodes().length === 0) return;
 
+  // Temporarily switch to light mode styles for export
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  if (isDark) {
+    cy.value.style(getCytoscapeStyles(true) as any);
+    // Override inline cluster colors to light palette
+    cy.value.nodes().forEach((node) => {
+      const cluster = node.data('cluster');
+      if (cluster >= 0) {
+        node.style('background-color', getClusterColor(cluster));
+      }
+    });
+  }
+
   const bb = cy.value.elements().boundingBox({});
   const padding = 60;
   const contentW = bb.w + padding * 2;
@@ -566,6 +579,17 @@ function exportPng() {
 
   // Raw graph image from Cytoscape
   const pngDataUrl = cy.value.png({ full: true, scale, bg: '#FFFFFF', padding } as any);
+
+  // Restore dark mode styles
+  if (isDark) {
+    cy.value.style(getCytoscapeStyles() as any);
+    cy.value.nodes().forEach((node) => {
+      const cluster = node.data('cluster');
+      if (cluster >= 0) {
+        node.style('background-color', getClusterColor(cluster));
+      }
+    });
+  }
 
   const graphImg = new Image();
   graphImg.onload = () => {
@@ -662,6 +686,16 @@ async function triggerDownload(dataUrl: string) {
 async function exportSvg() {
   if (!cy.value || cy.value.nodes().length === 0) return;
 
+  // Temporarily switch to light mode styles for export
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  if (isDark) {
+    cy.value.style(getCytoscapeStyles(true) as any);
+    cy.value.nodes().forEach((node) => {
+      const cluster = node.data('cluster');
+      if (cluster >= 0) node.style('background-color', getClusterColor(cluster));
+    });
+  }
+
   const bb = cy.value.elements().boundingBox({});
   const padding = 60;
   const w = bb.w + padding * 2;
@@ -669,6 +703,15 @@ async function exportSvg() {
 
   // Get high-res PNG from Cytoscape
   const pngDataUrl = cy.value.png({ full: true, scale: 2, bg: '#FFFFFF', padding } as any);
+
+  // Restore dark mode styles
+  if (isDark) {
+    cy.value.style(getCytoscapeStyles() as any);
+    cy.value.nodes().forEach((node) => {
+      const cluster = node.data('cluster');
+      if (cluster >= 0) node.style('background-color', getClusterColor(cluster));
+    });
+  }
 
   // Wrap in SVG with embedded image
   const svgContent = `<?xml version="1.0" encoding="UTF-8"?>

@@ -139,19 +139,19 @@ function cssVar(name: string, fallback: string): string {
   return val || fallback;
 }
 
-export function getCytoscapeStyles(): cytoscape.StylesheetCSS[] {
-  const nodeBg = cssVar('--cy-node-bg', '#EAEAEA');
-  const nodeBorder = cssVar('--cy-node-border', '#333333');
-  const nodeText = cssVar('--cy-node-text', '#1A1A1A');
-  const nodeSelected = cssVar('--cy-node-selected', '#000000');
-  const nodeControversial = cssVar('--cy-node-controversial', '#000000');
-  const edgeText = cssVar('--cy-edge-text', '#888888');
-  const edgeTextBg = cssVar('--cy-edge-text-bg', '#FFFFFF');
-  const supports = cssVar('--cy-supports', '#2C2C2C');
-  const opposes = cssVar('--cy-opposes', '#1A1A1A');
-  const modifies = cssVar('--cy-modifies', '#4D4D4D');
-  const adopts = cssVar('--cy-adopts', '#808080');
-  const reinterprets = cssVar('--cy-reinterprets', '#B3B3B3');
+export function getCytoscapeStyles(forceLight = false): cytoscape.StylesheetCSS[] {
+  const nodeBg = forceLight ? '#EAEAEA' : cssVar('--cy-node-bg', '#EAEAEA');
+  const nodeBorder = forceLight ? '#333333' : cssVar('--cy-node-border', '#333333');
+  const nodeText = forceLight ? '#1A1A1A' : cssVar('--cy-node-text', '#1A1A1A');
+  const nodeSelected = forceLight ? '#000000' : cssVar('--cy-node-selected', '#000000');
+  const nodeControversial = forceLight ? '#000000' : cssVar('--cy-node-controversial', '#000000');
+  const edgeText = forceLight ? '#888888' : cssVar('--cy-edge-text', '#888888');
+  const edgeTextBg = forceLight ? '#FFFFFF' : cssVar('--cy-edge-text-bg', '#FFFFFF');
+  const supports = forceLight ? '#2C2C2C' : cssVar('--cy-supports', '#2C2C2C');
+  const opposes = forceLight ? '#1A1A1A' : cssVar('--cy-opposes', '#1A1A1A');
+  const modifies = forceLight ? '#4D4D4D' : cssVar('--cy-modifies', '#4D4D4D');
+  const adopts = forceLight ? '#808080' : cssVar('--cy-adopts', '#808080');
+  const reinterprets = forceLight ? '#B3B3B3' : cssVar('--cy-reinterprets', '#B3B3B3');
 
   return [
     {

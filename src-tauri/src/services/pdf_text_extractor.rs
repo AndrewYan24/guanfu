@@ -45,6 +45,7 @@ const MAX_RETRIES: u32 = 3;
 
 /// Extract text from a PDF file using lopdf (local, no external dependency).
 pub fn extract_text(pdf_path: &Path) -> AppResult<String> {
+    let file_name = pdf_path.file_name().unwrap_or_default().to_string_lossy();
     let bytes = std::fs::read(pdf_path)
         .map_err(|e| crate::errors::AppError::IoError(format!("无法读取 PDF 文件: {}", e)))?;
 
@@ -59,6 +60,7 @@ pub fn extract_text(pdf_path: &Path) -> AppResult<String> {
     };
 
     let pages = doc.get_pages();
+    let page_count = pages.len();
     let mut text = String::new();
 
     for (page_num, _) in pages.iter() {
@@ -68,6 +70,7 @@ pub fn extract_text(pdf_path: &Path) -> AppResult<String> {
         }
     }
 
+    eprintln!("[pdf] {} 提取 {} 页, {} 字符", file_name, page_count, text.len());
     Ok(text)
 }
 
@@ -326,23 +329,33 @@ async fn extract_text_paddle_ocr(pdf_path: &Path) -> AppResult<String> {
         ));
     }
 
+    eprintln!("[pdf] OCR 处理 {} 页, 识别 {} 字符", max_pages, all_text.len());
     Ok(all_text)
 }
 
 /// Extract text with automatic fallback to OCR.
 /// First tries lopdf extraction, then falls back to PaddleOCR if text is insufficient or lopdf fails.
 pub async fn extract_text_with_ocr_fallback(pdf_path: &Path) -> AppResult<String> {
+    let file_name = pdf_path.file_name().unwrap_or_default().to_string_lossy();
     match extract_text(pdf_path) {
         Ok(text) if has_sufficient_text(&text) => Ok(text),
         Ok(text) => {
+            eprintln!("[pdf] {} 文本不足 ({} 字符), 尝试 OCR...", file_name, text.len());
             match extract_text_paddle_ocr(pdf_path).await {
-                Ok(ocr_text) => Ok(ocr_text),
+                Ok(ocr_text) => {
+                    eprintln!("[pdf] {} OCR 成功, {} 字符", file_name, ocr_text.len());
+                    Ok(ocr_text)
+                }
                 Err(_) => Ok(text),
             }
         }
         Err(e) => {
+            eprintln!("[pdf] {} lopdf 失败, 尝试 OCR...", file_name);
             match extract_text_paddle_ocr(pdf_path).await {
-                Ok(ocr_text) => Ok(ocr_text),
+                Ok(ocr_text) => {
+                    eprintln!("[pdf] {} OCR 成功, {} 字符", file_name, ocr_text.len());
+                    Ok(ocr_text)
+                }
                 Err(_) => Err(e),
             }
         }

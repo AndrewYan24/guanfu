@@ -51,10 +51,3 @@ export function getHttpServerStatus() {
   return safeInvoke<[boolean, number]>('get_http_server_status');
 }
 
-export function checkServerOcrModels() {
-  return safeInvoke<boolean>('check_server_ocr_models');
-}
-
-export function downloadServerOcrModels() {
-  return safeInvoke<void>('download_server_ocr_models');
-}

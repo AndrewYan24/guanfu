@@ -16,19 +16,6 @@ pub enum OcrMethod {
     Mineru,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub enum OcrModelMode {
-    Mobile,
-    Server,
-}
-
-impl Default for OcrModelMode {
-    fn default() -> Self {
-        Self::Mobile
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MineruConfig {
@@ -74,9 +61,6 @@ pub struct AiSettings {
     pub active_provider: Option<String>,
     /// OCR method for text extraction
     pub ocr_method: OcrMethod,
-    /// OCR model mode: Mobile (built-in, fast) or Server (downloaded, high-precision)
-    #[serde(default)]
-    pub ocr_model_mode: OcrModelMode,
     /// MinerU API config
     pub mineru: Option<MineruConfig>,
     /// Embedding model name (optional, defaults to provider's default)
@@ -132,7 +116,6 @@ pub struct MaskedAiSettings {
     pub anthropic: Option<MaskedAiProviderConfig>,
     pub active_provider: Option<String>,
     pub ocr_method: OcrMethod,
-    pub ocr_model_mode: OcrModelMode,
     pub mineru: Option<MaskedMineruConfig>,
     pub embedding_model: Option<String>,
     pub embedding_base_url: Option<String>,

@@ -6,8 +6,8 @@ import { useTheme } from '@/composables/useTheme';
 import { useToast } from '@/composables/useToast';
 import { open } from '@tauri-apps/plugin-dialog';
 import { availableLocales, setLocale, getLocale } from '@/i18n';
-import { toggleHttpServer, checkServerOcrModels, downloadServerOcrModels } from '@/api/aiApi';
-import type { AiSettings, OcrMethod, OcrModelMode } from '@/types';
+import { toggleHttpServer } from '@/api/aiApi';
+import type { AiSettings, OcrMethod } from '@/types';
 import type { ThemeMode } from '@/composables/useTheme';
 
 const { t } = useI18n();
@@ -26,9 +26,6 @@ const isTesting = ref(false);
 
 const activeProvider = ref<'openaiCompatible' | 'anthropic' | null>(null);
 const ocrMethod = ref<OcrMethod>('local');
-const ocrModelMode = ref<OcrModelMode>('mobile');
-const serverModelsDownloaded = ref(false);
-const isDownloadingModels = ref(false);
 
 const openai = reactive({
   apiKey: '',
@@ -81,12 +78,6 @@ function loadForm() {
 
   activeProvider.value = s.activeProvider ?? null;
   ocrMethod.value = s.ocrMethod || 'local';
-  ocrModelMode.value = s.ocrModelMode || 'mobile';
-
-  // Check server model download status
-  checkServerOcrModels().then(downloaded => {
-    serverModelsDownloaded.value = downloaded;
-  });
 
   if (s.openaiCompatible) {
     openai.baseUrl = s.openaiCompatible.baseUrl || 'https://api.openai.com/v1';
@@ -130,7 +121,6 @@ function buildPayload(): AiSettings {
   const settings: AiSettings = {
     activeProvider: activeProvider.value,
     ocrMethod: ocrMethod.value,
-    ocrModelMode: ocrModelMode.value,
     locale: getLocale(),
   };
 
@@ -205,7 +195,6 @@ watch(
   () => [
     activeProvider.value,
     ocrMethod.value,
-    ocrModelMode.value,
     openai.apiKey, openai.baseUrl, openai.model,
     anthropic.apiKey, anthropic.baseUrl, anthropic.model,
     mineru.apiKey, mineru.apiBase,
@@ -242,19 +231,6 @@ async function handleHttpToggle() {
   } catch (e) {
     httpApiEnabled.value = false;
     toast.show(String(e), 'error');
-  }
-}
-
-async function handleDownloadServerModels() {
-  isDownloadingModels.value = true;
-  try {
-    await downloadServerOcrModels();
-    serverModelsDownloaded.value = true;
-    toast.show(t('settings.ocrModelDownloaded'), 'success');
-  } catch (e) {
-    toast.show(String(e), 'error');
-  } finally {
-    isDownloadingModels.value = false;
   }
 }
 
@@ -491,67 +467,42 @@ function scrollTo(id: string) {
         <p class="section-desc">{{ t('settings.ocrDesc') }}</p>
 
         <div class="ocr-options">
-          <div class="ocr-option" :class="{ active: ocrMethod === 'local' }">
-            <label class="ocr-option-header">
-              <input type="radio" value="local" v-model="ocrMethod" />
-              <div class="ocr-info">
-                <span class="ocr-name">{{ t('settings.localOcr') }}</span>
-                <span class="ocr-hint">{{ t('settings.localOcrHint') }}</span>
-              </div>
-            </label>
-            <div v-if="ocrMethod === 'local'" class="ocr-sub">
-              <label class="ocr-sub-option" :class="{ active: ocrModelMode === 'mobile' }">
-                <input type="radio" value="mobile" v-model="ocrModelMode" />
-                <span class="ocr-sub-label">{{ t('settings.ocrModelMobile') }}</span>
-                <span class="ocr-sub-hint">{{ t('settings.ocrModelMobileHint') }}</span>
-              </label>
-              <label class="ocr-sub-option" :class="{ active: ocrModelMode === 'server' }">
-                <input type="radio" value="server" v-model="ocrModelMode" />
-                <span class="ocr-sub-label">
-                  {{ t('settings.ocrModelServer') }}
-                  <span v-if="serverModelsDownloaded" class="model-badge downloaded">{{ t('settings.ocrModelDownloaded') }}</span>
-                  <span v-else-if="isDownloadingModels" class="model-badge downloading">{{ t('settings.ocrModelDownloading') }}</span>
-                  <span v-else class="model-badge not-downloaded">{{ t('settings.ocrModelNotDownloaded') }}</span>
-                </span>
-                <span class="ocr-sub-hint">{{ t('settings.ocrModelServerHint') }}</span>
-              </label>
-              <div v-if="ocrModelMode === 'server' && !serverModelsDownloaded && !isDownloadingModels" class="model-download-row">
-                <button class="btn-secondary btn-sm" @click="handleDownloadServerModels">
-                  {{ t('settings.ocrModelDownload') }}
-                </button>
-              </div>
+          <label class="ocr-option" :class="{ active: ocrMethod === 'local' }">
+            <input type="radio" value="local" v-model="ocrMethod" />
+            <div class="ocr-info">
+              <span class="ocr-name">{{ t('settings.localOcr') }}</span>
+              <span class="ocr-hint">{{ t('settings.localOcrHint') }}</span>
             </div>
-          </div>
-          <div class="ocr-option" :class="{ active: ocrMethod === 'mineru' }">
-            <label class="ocr-option-header">
-              <input type="radio" value="mineru" v-model="ocrMethod" />
-              <div class="ocr-info">
-                <span class="ocr-name">{{ t('settings.mineru') }}</span>
-                <span class="ocr-hint">{{ t('settings.mineruHint') }}</span>
-              </div>
-            </label>
-            <div v-if="ocrMethod === 'mineru'" class="ocr-sub">
-              <div class="field">
-                <label>{{ t('settings.apiKey') }}</label>
-                <input
-                  type="password"
-                  v-model="mineru.apiKey"
-                  :placeholder="mineru.maskedKey || 'MinerU API Key'"
-                  class="input input-api-key"
-                />
-              </div>
-              <div class="field">
-                <label>{{ t('settings.baseUrl') }}</label>
-                <input
-                  type="text"
-                  v-model="mineru.apiBase"
-                  placeholder="https://mineru.net/api"
-                  class="input"
-                />
-              </div>
+          </label>
+          <label class="ocr-option" :class="{ active: ocrMethod === 'mineru' }">
+            <input type="radio" value="mineru" v-model="ocrMethod" />
+            <div class="ocr-info">
+              <span class="ocr-name">{{ t('settings.mineru') }}</span>
+              <span class="ocr-hint">{{ t('settings.mineruHint') }}</span>
             </div>
+          </label>
+        </div>
+
+        <div v-if="ocrMethod === 'mineru'" class="mineru-fields">
+          <div class="field">
+            <label>{{ t('settings.apiKey') }}</label>
+            <input
+              type="password"
+              v-model="mineru.apiKey"
+              :placeholder="mineru.maskedKey || 'MinerU API Key'"
+              class="input input-api-key"
+            />
           </div>
+          <div class="field">
+            <label>{{ t('settings.baseUrl') }}</label>
+            <input
+              type="text"
+              v-model="mineru.apiBase"
+              placeholder="https://mineru.net/api"
+              class="input"
+            />
           </div>
+        </div>
       </section>
 
       <details id="advanced" class="settings-section advanced-section">
@@ -957,31 +908,27 @@ function scrollTo(id: string) {
 }
 
 .ocr-option {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
   border: 1px solid $color-border;
   border-radius: $radius-sm;
   padding: $spacing-md $spacing-lg;
+  cursor: pointer;
   transition: border-color $transition-fast;
 
   &.active {
     border-color: $color-node-border;
   }
-}
 
-.ocr-option-header {
-  display: flex;
-  align-items: center;
-  gap: $spacing-md;
-  cursor: pointer;
-}
-
-.ocr-option > input[type="radio"],
-.ocr-option-header input[type="radio"] {
-  accent-color: $color-text-primary;
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  margin: 0;
-  cursor: pointer;
+  input[type="radio"] {
+    accent-color: $color-text-primary;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    margin: 0;
+    cursor: pointer;
+  }
 }
 
 .ocr-info {
@@ -1000,78 +947,14 @@ function scrollTo(id: string) {
   color: $color-text-disabled;
 }
 
-.ocr-sub {
-  margin-top: $spacing-md;
-  padding-top: $spacing-md;
-  border-top: 1px solid $color-border;
+.mineru-fields {
   display: flex;
   flex-direction: column;
-  gap: $spacing-xs;
-}
-
-.ocr-sub-option {
-  display: flex;
-  align-items: baseline;
-  gap: $spacing-sm;
-  padding: $spacing-xs 0;
-  cursor: pointer;
-  flex-wrap: wrap;
-
-  input[type="radio"] {
-    accent-color: $color-text-primary;
-    width: 13px;
-    height: 13px;
-    flex-shrink: 0;
-    margin: 0;
-    cursor: pointer;
-  }
-}
-
-.ocr-sub-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: $color-text-secondary;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-
-  .ocr-sub-option.active & {
-    color: $color-text-primary;
-  }
-}
-
-.ocr-sub-hint {
-  font-size: 11px;
-  color: $color-text-disabled;
-  padding-left: 21px; // align with radio + gap
-}
-
-.model-badge {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-weight: 400;
-  white-space: nowrap;
-
-  &.downloaded {
-    background: rgba(39, 174, 96, 0.1);
-    color: var(--color-success);
-  }
-
-  &.not-downloaded {
-    background: rgba(0, 0, 0, 0.05);
-    color: $color-text-disabled;
-  }
-
-  &.downloading {
-    background: rgba(0, 0, 0, 0.05);
-    color: $color-text-secondary;
-  }
-}
-
-.model-download-row {
-  padding-top: $spacing-xs;
-  padding-left: 21px;
+  gap: $spacing-md;
+  margin-top: $spacing-md;
+  padding: $spacing-lg;
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
 }
 
 .theme-options {

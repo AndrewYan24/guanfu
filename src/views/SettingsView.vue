@@ -551,6 +551,7 @@ function scrollTo(id: string) {
               </div>
             </div>
           </div>
+          </div>
       </section>
 
       <details id="advanced" class="settings-section advanced-section">

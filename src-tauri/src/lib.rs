@@ -77,6 +77,8 @@ pub fn run() {
             commands::chat_ask_stream,
             commands::chat_build_embeddings,
             commands::get_chat_history,
+            commands::check_server_ocr_models,
+            commands::download_server_ocr_models,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

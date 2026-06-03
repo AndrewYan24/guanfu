@@ -6,8 +6,8 @@ import { useTheme } from '@/composables/useTheme';
 import { useToast } from '@/composables/useToast';
 import { open } from '@tauri-apps/plugin-dialog';
 import { availableLocales, setLocale, getLocale } from '@/i18n';
-import { toggleHttpServer } from '@/api/aiApi';
-import type { AiSettings, OcrMethod } from '@/types';
+import { toggleHttpServer, checkServerOcrModels, downloadServerOcrModels } from '@/api/aiApi';
+import type { AiSettings, OcrMethod, OcrModelMode } from '@/types';
 import type { ThemeMode } from '@/composables/useTheme';
 
 const { t } = useI18n();
@@ -26,6 +26,9 @@ const isTesting = ref(false);
 
 const activeProvider = ref<'openaiCompatible' | 'anthropic' | null>(null);
 const ocrMethod = ref<OcrMethod>('local');
+const ocrModelMode = ref<OcrModelMode>('mobile');
+const serverModelsDownloaded = ref(false);
+const isDownloadingModels = ref(false);
 
 const openai = reactive({
   apiKey: '',
@@ -78,6 +81,12 @@ function loadForm() {
 
   activeProvider.value = s.activeProvider ?? null;
   ocrMethod.value = s.ocrMethod || 'local';
+  ocrModelMode.value = s.ocrModelMode || 'mobile';
+
+  // Check server model download status
+  checkServerOcrModels().then(downloaded => {
+    serverModelsDownloaded.value = downloaded;
+  });
 
   if (s.openaiCompatible) {
     openai.baseUrl = s.openaiCompatible.baseUrl || 'https://api.openai.com/v1';
@@ -121,6 +130,7 @@ function buildPayload(): AiSettings {
   const settings: AiSettings = {
     activeProvider: activeProvider.value,
     ocrMethod: ocrMethod.value,
+    ocrModelMode: ocrModelMode.value,
     locale: getLocale(),
   };
 
@@ -195,6 +205,7 @@ watch(
   () => [
     activeProvider.value,
     ocrMethod.value,
+    ocrModelMode.value,
     openai.apiKey, openai.baseUrl, openai.model,
     anthropic.apiKey, anthropic.baseUrl, anthropic.model,
     mineru.apiKey, mineru.apiBase,
@@ -231,6 +242,19 @@ async function handleHttpToggle() {
   } catch (e) {
     httpApiEnabled.value = false;
     toast.show(String(e), 'error');
+  }
+}
+
+async function handleDownloadServerModels() {
+  isDownloadingModels.value = true;
+  try {
+    await downloadServerOcrModels();
+    serverModelsDownloaded.value = true;
+    toast.show(t('settings.ocrModelDownloaded'), 'success');
+  } catch (e) {
+    toast.show(String(e), 'error');
+  } finally {
+    isDownloadingModels.value = false;
   }
 }
 
@@ -481,6 +505,33 @@ function scrollTo(id: string) {
               <span class="ocr-hint">{{ t('settings.mineruHint') }}</span>
             </div>
           </label>
+        </div>
+
+        <div v-if="ocrMethod === 'local'" class="model-options">
+          <label class="model-option" :class="{ active: ocrModelMode === 'mobile' }">
+            <input type="radio" value="mobile" v-model="ocrModelMode" />
+            <div class="model-info">
+              <span class="model-name">{{ t('settings.ocrModelMobile') }}</span>
+              <span class="model-hint">{{ t('settings.ocrModelMobileHint') }}</span>
+            </div>
+          </label>
+          <label class="model-option" :class="{ active: ocrModelMode === 'server' }">
+            <input type="radio" value="server" v-model="ocrModelMode" />
+            <div class="model-info">
+              <span class="model-name">
+                {{ t('settings.ocrModelServer') }}
+                <span v-if="serverModelsDownloaded" class="model-badge downloaded">{{ t('settings.ocrModelDownloaded') }}</span>
+                <span v-else-if="isDownloadingModels" class="model-badge downloading">{{ t('settings.ocrModelDownloading') }}</span>
+                <span v-else class="model-badge not-downloaded">{{ t('settings.ocrModelNotDownloaded') }}</span>
+              </span>
+              <span class="model-hint">{{ t('settings.ocrModelServerHint') }}</span>
+            </div>
+          </label>
+          <div v-if="ocrModelMode === 'server' && !serverModelsDownloaded && !isDownloadingModels" class="model-download-row">
+            <button class="btn-secondary btn-sm" @click="handleDownloadServerModels">
+              {{ t('settings.ocrModelDownload') }}
+            </button>
+          </div>
         </div>
 
         <div v-if="ocrMethod === 'mineru'" class="mineru-fields">
@@ -945,6 +996,83 @@ function scrollTo(id: string) {
 .ocr-hint {
   font-size: 11px;
   color: $color-text-disabled;
+}
+
+.model-options {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+  margin-top: $spacing-md;
+  padding: $spacing-lg;
+  border: 1px solid $color-border;
+  border-radius: $radius-sm;
+}
+
+.model-option {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: $spacing-sm 0;
+  cursor: pointer;
+
+  &.active .model-name {
+    color: $color-text-primary;
+  }
+
+  input[type="radio"] {
+    accent-color: $color-text-primary;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    margin: 0;
+    cursor: pointer;
+  }
+}
+
+.model-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.model-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: $color-text-secondary;
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.model-hint {
+  font-size: 11px;
+  color: $color-text-disabled;
+}
+
+.model-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 400;
+
+  &.downloaded {
+    background: rgba(39, 174, 96, 0.1);
+    color: var(--color-success);
+  }
+
+  &.not-downloaded {
+    background: rgba(0, 0, 0, 0.05);
+    color: $color-text-disabled;
+  }
+
+  &.downloading {
+    background: rgba(0, 0, 0, 0.05);
+    color: $color-text-secondary;
+  }
+}
+
+.model-download-row {
+  padding-top: $spacing-sm;
 }
 
 .theme-options {

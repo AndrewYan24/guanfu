@@ -342,7 +342,7 @@ async fn ai_parse_paper(
 
     let settings = state.ai_settings.lock().expect("ai_settings mutex poisoned").clone();
 
-    let text = pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
+    let text = pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path, settings.ocr_model_mode.clone())
         .await
         .unwrap_or_default();
     let text = if text.trim().is_empty() {
@@ -506,6 +506,7 @@ async fn batch_add_relations_handler(
 
 async fn extract_text_handler(
     Path(paper_id): Path<String>,
+    State(state): State<SharedState>,
     Json(body): Json<ProjectOnlyBody>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let pp = validate_project_path(&body.project_path)?;
@@ -520,7 +521,8 @@ async fn extract_text_handler(
         .join("papers")
         .join(&paper.file_path);
 
-    let text = pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
+    let ocr_mode = state.ai_settings.lock().expect("ai_settings mutex poisoned").ocr_model_mode.clone();
+    let text = pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path, ocr_mode)
         .await
         .unwrap_or_default();
     Ok(Json(serde_json::json!({ "text": text })))
@@ -563,9 +565,10 @@ async fn batch_ai_parse_handler(
     for (paper_id, pdf_path) in work_items {
         let sem = sem.clone();
         let s = settings.clone();
+        let ocr_mode = settings.ocr_model_mode.clone();
         handles.push(tokio::spawn(async move {
             let _permit = sem.acquire().await.expect("semaphore closed");
-            let text = pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
+            let text = pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path, ocr_mode)
                 .await
                 .unwrap_or_default();
             let text = if text.trim().is_empty() {

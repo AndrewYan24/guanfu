@@ -29,7 +29,7 @@ pub async fn ai_parse_pdf(
     // Step 1: Extract text from PDF (with automatic OCR fallback for scanned PDFs)
     let text = match settings.ocr_method {
         crate::models::OcrMethod::Local => {
-            pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
+            pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path, settings.ocr_model_mode.clone())
                 .await
                 .unwrap_or_default()
         }
@@ -43,7 +43,7 @@ pub async fn ai_parse_pdf(
                 .await
                 .unwrap_or_default()
             } else {
-                pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
+                pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path, settings.ocr_model_mode.clone())
                     .await
                     .unwrap_or_default()
             }
@@ -145,9 +145,10 @@ pub async fn ai_parse_pdfs_batch(
     for (paper_id, pdf_path, fallback_text) in work_items {
         let sem = sem.clone();
         let s = settings.clone();
+        let ocr_mode = settings.ocr_model_mode.clone();
         handles.push(tokio::spawn(async move {
             let _permit = sem.acquire().await.expect("semaphore closed");
-            let text = pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
+            let text = pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path, ocr_mode)
                 .await
                 .unwrap_or_default();
             let text = if text.trim().is_empty() {
@@ -340,6 +341,7 @@ pub async fn get_ai_settings_masked(
         anthropic: s.anthropic.as_ref().map(|c| c.to_masked()),
         active_provider: s.active_provider.clone(),
         ocr_method: s.ocr_method.clone(),
+        ocr_model_mode: s.ocr_model_mode.clone(),
         mineru: s.mineru.as_ref().map(|m| m.to_masked()),
         embedding_model: s.embedding_model.clone(),
         embedding_base_url: s.embedding_base_url.clone(),
@@ -419,4 +421,27 @@ pub async fn get_http_server_status(
 ) -> AppResult<(bool, u16)> {
     let settings = app_err::lock_mutex(&state.ai_settings)?;
     Ok((settings.http_api_enabled, settings.http_api_port))
+}
+
+/// Check if server OCR models are downloaded.
+#[tauri::command]
+pub async fn check_server_ocr_models() -> bool {
+    pdf_text_extractor::has_server_ocr_models()
+}
+
+/// Download server OCR models to user data directory.
+#[tauri::command]
+pub async fn download_server_ocr_models(app: tauri::AppHandle) -> AppResult<()> {
+    use tauri::Emitter;
+    let _ = app.emit("ocr_download_progress", serde_json::json!({ "status": "started" }));
+    match pdf_text_extractor::download_server_ocr_models().await {
+        Ok(()) => {
+            let _ = app.emit("ocr_download_progress", serde_json::json!({ "status": "completed" }));
+            Ok(())
+        }
+        Err(e) => {
+            let _ = app.emit("ocr_download_progress", serde_json::json!({ "status": "failed", "error": e.to_string() }));
+            Err(e)
+        }
+    }
 }

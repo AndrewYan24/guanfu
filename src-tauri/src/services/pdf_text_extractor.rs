@@ -1,4 +1,5 @@
 use crate::errors::AppResult;
+use crate::models::OcrModelMode;
 use lopdf::Document;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -51,6 +52,18 @@ fn model_sources() -> Vec<(&'static str, Vec<&'static str>)> {
 
 /// Maximum retry attempts per download source.
 const MAX_RETRIES: u32 = 3;
+
+/// Server det model download URL (higher precision text detection, ~80MB).
+/// Only the det model is available in ONNX format for server version.
+/// cls/rec/dict reuse the bundled mobile models.
+fn server_det_source() -> (&'static str, Vec<&'static str>) {
+    (
+        "ch_PP-OCRv5_server_det.onnx",
+        vec![
+            "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.6.0/onnx/PP-OCRv5/det/ch_PP-OCRv5_server_det.onnx",
+        ],
+    )
+}
 
 /// Extract text from a PDF file using lopdf (local, no external dependency).
 pub fn extract_text(pdf_path: &Path) -> AppResult<String> {
@@ -149,7 +162,7 @@ pub fn has_sufficient_text(text: &str) -> bool {
     alpha_count >= MIN_TEXT_LENGTH / 2
 }
 
-/// Get the directory where OCR models are stored.
+/// Get the directory where downloaded OCR models are stored.
 fn models_dir() -> AppResult<PathBuf> {
     let dir = dirs_next::data_dir()
         .unwrap_or_else(std::env::temp_dir)
@@ -158,81 +171,146 @@ fn models_dir() -> AppResult<PathBuf> {
     Ok(dir)
 }
 
-/// Ensure OCR model files exist.
-/// First checks bundled resources (packaged with the app), then falls back to download.
-async fn ensure_models() -> AppResult<PathBuf> {
-    // 1. Check bundled resources first
+/// Get the directory where server OCR models are stored.
+fn server_models_dir() -> AppResult<PathBuf> {
+    let dir = dirs_next::data_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("guanfu")
+        .join("ocr_models_server");
+    Ok(dir)
+}
+
+/// Ensure OCR model files exist and return individual file paths: (det, cls, rec, dict).
+/// Mobile mode: uses bundled resources (no download needed).
+/// Server mode: uses server det model (downloaded on demand) + bundled mobile cls/rec/dict.
+async fn ensure_models(mode: OcrModelMode) -> AppResult<(PathBuf, PathBuf, PathBuf, PathBuf)> {
+    match mode {
+        OcrModelMode::Mobile => ensure_mobile_models().await,
+        OcrModelMode::Server => ensure_server_models().await,
+    }
+}
+
+/// Ensure mobile models (all bundled).
+async fn ensure_mobile_models() -> AppResult<(PathBuf, PathBuf, PathBuf, PathBuf)> {
+    // Check bundled resources first
     if let Some(bundled) = BUNDLED_MODELS_DIR.get() {
         let all_exist = model_sources()
             .iter()
             .all(|(filename, _)| bundled.join(filename).exists());
         if all_exist {
-            eprintln!("[ocr] 使用内置模型: {}", bundled.display());
-            return Ok(bundled.clone());
+            eprintln!("[ocr] 使用内置 Mobile 模型: {}", bundled.display());
+            return Ok((
+                bundled.join("ch_PP-OCRv5_mobile_det.onnx"),
+                bundled.join("ch_ppocr_mobile_v2.0_cls_infer.onnx"),
+                bundled.join("ch_PP-OCRv5_rec_mobile_infer.onnx"),
+                bundled.join("ppocrv5_dict.txt"),
+            ));
         }
     }
 
-    // 2. Fall back to download directory
+    // Fall back to download directory
     let dir = models_dir()?;
-
-    // Check if all files exist
     let all_exist = model_sources()
         .iter()
         .all(|(filename, _)| dir.join(filename).exists());
     if all_exist {
-        return Ok(dir);
+        return Ok((
+            dir.join("ch_PP-OCRv5_mobile_det.onnx"),
+            dir.join("ch_ppocr_mobile_v2.0_cls_infer.onnx"),
+            dir.join("ch_PP-OCRv5_rec_mobile_infer.onnx"),
+            dir.join("ppocrv5_dict.txt"),
+        ));
     }
 
-    // Create directory
+    // Download missing files
     std::fs::create_dir_all(&dir)
         .map_err(|e| crate::errors::AppError::IoError(format!("无法创建模型目录: {}", e)))?;
-
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|e| crate::errors::AppError::Unknown(format!("创建 HTTP 客户端失败: {}", e)))?;
 
-    // Download each missing file, trying all mirrors
     for (filename, sources) in model_sources() {
         let path = dir.join(filename);
-        if path.exists() {
-            continue;
+        if path.exists() { continue; }
+        eprintln!("[ocr] 下载 Mobile 模型: {}", filename);
+        download_with_retries(&client, sources, &path).await?;
+    }
+
+    Ok((
+        dir.join("ch_PP-OCRv5_mobile_det.onnx"),
+        dir.join("ch_ppocr_mobile_v2.0_cls_infer.onnx"),
+        dir.join("ch_PP-OCRv5_rec_mobile_infer.onnx"),
+        dir.join("ppocrv5_dict.txt"),
+    ))
+}
+
+/// Ensure server models: server det (downloaded) + mobile cls/rec/dict (bundled).
+async fn ensure_server_models() -> AppResult<(PathBuf, PathBuf, PathBuf, PathBuf)> {
+    // cls/rec/dict always come from bundled mobile models
+    let (cls_path, rec_path, dict_path) = if let Some(bundled) = BUNDLED_MODELS_DIR.get() {
+        let cls = bundled.join("ch_ppocr_mobile_v2.0_cls_infer.onnx");
+        let rec = bundled.join("ch_PP-OCRv5_rec_mobile_infer.onnx");
+        let dict = bundled.join("ppocrv5_dict.txt");
+        if cls.exists() && rec.exists() && dict.exists() {
+            (cls, rec, dict)
+        } else {
+            let dir = models_dir()?;
+            (dir.join("ch_ppocr_mobile_v2.0_cls_infer.onnx"),
+             dir.join("ch_PP-OCRv5_rec_mobile_infer.onnx"),
+             dir.join("ppocrv5_dict.txt"))
         }
-        eprintln!("[ocr] 下载模型: {}", filename);
+    } else {
+        let dir = models_dir()?;
+        (dir.join("ch_ppocr_mobile_v2.0_cls_infer.onnx"),
+         dir.join("ch_PP-OCRv5_rec_mobile_infer.onnx"),
+         dir.join("ppocrv5_dict.txt"))
+    };
 
-        let mut last_err = String::new();
-        let mut downloaded = false;
+    // Server det model: check server models directory
+    let server_dir = server_models_dir()?;
+    let (det_filename, det_sources) = server_det_source();
+    let det_path = server_dir.join(det_filename);
 
-        for source_url in &sources {
-            for attempt in 1..=MAX_RETRIES {
-                match download_file(&client, source_url, &path).await {
-                    Ok(()) => {
-                        downloaded = true;
-                        break;
-                    }
-                    Err(e) => {
-                        last_err = format!("{}", e);
-                        if attempt < MAX_RETRIES {
-                            // Brief delay before retry
-                            tokio::time::sleep(std::time::Duration::from_millis(500 * attempt as u64)).await;
-                        }
+    if det_path.exists() {
+        eprintln!("[ocr] 使用 Server det 模型: {}", det_path.display());
+        return Ok((det_path, cls_path, rec_path, dict_path));
+    }
+
+    // Download server det model
+    std::fs::create_dir_all(&server_dir)
+        .map_err(|e| crate::errors::AppError::IoError(format!("无法创建 Server 模型目录: {}", e)))?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300)) // 80MB needs more time
+        .build()
+        .map_err(|e| crate::errors::AppError::Unknown(format!("创建 HTTP 客户端失败: {}", e)))?;
+
+    eprintln!("[ocr] 下载 Server det 模型 (~80MB)...");
+    download_with_retries(&client, det_sources, &det_path).await?;
+
+    Ok((det_path, cls_path, rec_path, dict_path))
+}
+
+/// Download a file with retries across multiple mirrors.
+async fn download_with_retries(client: &reqwest::Client, sources: Vec<&str>, path: &Path) -> AppResult<()> {
+    let mut last_err = String::new();
+    for source_url in &sources {
+        for attempt in 1..=MAX_RETRIES {
+            match download_file(client, source_url, path).await {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    last_err = format!("{}", e);
+                    if attempt < MAX_RETRIES {
+                        tokio::time::sleep(std::time::Duration::from_millis(500 * attempt as u64)).await;
                     }
                 }
             }
-            if downloaded {
-                break;
-            }
-        }
-
-        if !downloaded {
-            return Err(crate::errors::AppError::Unknown(format!(
-                "OCR 模型下载失败 ({}). 已尝试所有下载源。请检查网络连接。最后错误: {}",
-                filename, last_err
-            )));
         }
     }
-
-    Ok(dir)
+    Err(crate::errors::AppError::Unknown(format!(
+        "模型下载失败. 已尝试所有下载源。请检查网络连接。最后错误: {}",
+        last_err
+    )))
 }
 
 async fn download_file(client: &reqwest::Client, url: &str, path: &Path) -> AppResult<()> {
@@ -261,16 +339,12 @@ async fn download_file(client: &reqwest::Client, url: &str, path: &Path) -> AppR
 }
 
 /// Extract text from a PDF using integrated PaddleOCR (no system dependencies).
-async fn extract_text_paddle_ocr(pdf_path: &Path) -> AppResult<String> {
+async fn extract_text_paddle_ocr(pdf_path: &Path, mode: OcrModelMode) -> AppResult<String> {
     let file_name = pdf_path.file_name().unwrap_or_default().to_string_lossy();
 
-    // Step 1: Ensure models are downloaded
-    eprintln!("[ocr] {} 检查模型...", file_name);
-    let models_dir = ensure_models().await?;
-    let det_path = models_dir.join("ch_PP-OCRv5_mobile_det.onnx");
-    let cls_path = models_dir.join("ch_ppocr_mobile_v2.0_cls_infer.onnx");
-    let rec_path = models_dir.join("ch_PP-OCRv5_rec_mobile_infer.onnx");
-    let dict_path = models_dir.join("ppocrv5_dict.txt");
+    // Step 1: Ensure models are available
+    eprintln!("[ocr] {} 检查模型 ({:?})...", file_name, mode);
+    let (det_path, cls_path, rec_path, dict_path) = ensure_models(mode).await?;
     eprintln!("[ocr] {} 模型就绪", file_name);
 
     // Step 2: Render PDF pages to images using pdf-render (pure Rust)
@@ -369,13 +443,13 @@ async fn extract_text_paddle_ocr(pdf_path: &Path) -> AppResult<String> {
 
 /// Extract text with automatic fallback to OCR.
 /// First tries lopdf extraction, then falls back to PaddleOCR if text is insufficient or lopdf fails.
-pub async fn extract_text_with_ocr_fallback(pdf_path: &Path) -> AppResult<String> {
+pub async fn extract_text_with_ocr_fallback(pdf_path: &Path, mode: OcrModelMode) -> AppResult<String> {
     let file_name = pdf_path.file_name().unwrap_or_default().to_string_lossy();
     match extract_text(pdf_path) {
         Ok(text) if has_sufficient_text(&text) => Ok(text),
         Ok(text) => {
             eprintln!("[pdf] {} 文本不足 ({} 字符), 尝试 OCR...", file_name, text.len());
-            match extract_text_paddle_ocr(pdf_path).await {
+            match extract_text_paddle_ocr(pdf_path, mode).await {
                 Ok(ocr_text) => {
                     eprintln!("[pdf] {} OCR 成功, {} 字符", file_name, ocr_text.len());
                     Ok(ocr_text)
@@ -385,7 +459,7 @@ pub async fn extract_text_with_ocr_fallback(pdf_path: &Path) -> AppResult<String
         }
         Err(e) => {
             eprintln!("[pdf] {} lopdf 失败, 尝试 OCR...", file_name);
-            match extract_text_paddle_ocr(pdf_path).await {
+            match extract_text_paddle_ocr(pdf_path, mode).await {
                 Ok(ocr_text) => {
                     eprintln!("[pdf] {} OCR 成功, {} 字符", file_name, ocr_text.len());
                     Ok(ocr_text)
@@ -446,4 +520,35 @@ pub async fn extract_text_mineru(
         .to_string();
 
     Ok(text)
+}
+
+/// Check if server OCR models are downloaded.
+pub fn has_server_ocr_models() -> bool {
+    let Ok(dir) = server_models_dir() else { return false; };
+    let (filename, _) = server_det_source();
+    dir.join(filename).exists()
+}
+
+/// Download server OCR models to the user data directory.
+pub async fn download_server_ocr_models() -> AppResult<()> {
+    let (det_filename, det_sources) = server_det_source();
+    let dir = server_models_dir()?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| crate::errors::AppError::IoError(format!("无法创建 Server 模型目录: {}", e)))?;
+
+    let path = dir.join(det_filename);
+    if path.exists() {
+        eprintln!("[ocr] Server det 模型已存在");
+        return Ok(());
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .map_err(|e| crate::errors::AppError::Unknown(format!("创建 HTTP 客户端失败: {}", e)))?;
+
+    eprintln!("[ocr] 下载 Server det 模型 (~80MB)...");
+    download_with_retries(&client, det_sources, &path).await?;
+    eprintln!("[ocr] Server det 模型下载完成");
+    Ok(())
 }

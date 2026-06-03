@@ -1,5 +1,5 @@
 use std::sync::Mutex;
-use crate::models::{AiSettings, OcrMethod};
+use crate::models::{AiSettings, OcrMethod, OcrModelMode};
 use crate::http_server::HttpServerHandle;
 
 pub struct AppState {
@@ -14,6 +14,7 @@ impl Default for AppState {
             anthropic: None,
             active_provider: None,
             ocr_method: OcrMethod::Local,
+            ocr_model_mode: OcrModelMode::Mobile,
             mineru: None,
             embedding_model: None,
             embedding_base_url: None,

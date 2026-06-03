@@ -1,7 +1,9 @@
-use crate::errors::{AppError, AppResult};
+use crate::errors::{self as app_err, AppError, AppResult};
 use crate::models::Paper;
 use crate::services::{paper_service, project_service};
+use crate::state::AppState;
 use base64::Engine;
+use tauri::State;
 
 #[tauri::command]
 pub async fn import_pdfs(project_path: String, file_paths: Vec<String>) -> AppResult<Vec<Paper>> {
@@ -28,7 +30,11 @@ pub async fn delete_paper(project_path: String, paper_id: String) -> AppResult<(
 }
 
 #[tauri::command]
-pub async fn extract_pdf_text(project_path: String, paper_id: String) -> AppResult<String> {
+pub async fn extract_pdf_text(
+    state: State<'_, AppState>,
+    project_path: String,
+    paper_id: String,
+) -> AppResult<String> {
     let project = project_service::open_project(&project_path)?;
     let paper = project
         .papers
@@ -40,7 +46,11 @@ pub async fn extract_pdf_text(project_path: String, paper_id: String) -> AppResu
         .join("papers")
         .join(&paper.file_path);
 
-    crate::services::pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path).await
+    let mode = {
+        let settings = app_err::lock_mutex(&state.ai_settings)?;
+        settings.ocr_model_mode.clone()
+    };
+    crate::services::pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path, mode).await
 }
 
 #[tauri::command]

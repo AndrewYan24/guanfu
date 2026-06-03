@@ -7,6 +7,8 @@ export interface AiProviderConfig {
 
 export type OcrMethod = 'local' | 'mineru';
 
+export type OcrModelMode = 'mobile' | 'server';
+
 export interface MineruConfig {
   apiKey: string;
   apiBase: string;
@@ -23,6 +25,7 @@ export interface AiSettings {
   anthropic?: AiProviderConfig;
   activeProvider?: 'openaiCompatible' | 'anthropic' | null;
   ocrMethod?: OcrMethod;
+  ocrModelMode?: OcrModelMode;
   mineru?: MineruConfig;
   embeddingModel?: string;
   embeddingBaseUrl?: string;
@@ -51,6 +54,7 @@ export interface MaskedAiSettings {
   anthropic?: MaskedAiProviderConfig;
   activeProvider?: 'openaiCompatible' | 'anthropic' | null;
   ocrMethod: OcrMethod;
+  ocrModelMode: OcrModelMode;
   mineru?: MaskedMineruConfig;
   embeddingModel?: string;
   embeddingBaseUrl?: string;

@@ -15,6 +15,14 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .manage(state::AppState::default())
         .setup(|app| {
+            // Set bundled OCR models path
+            if let Ok(resource_dir) = app.path().resource_dir() {
+                let models_dir = resource_dir.join("resources").join("ocr_models");
+                if models_dir.exists() {
+                    services::pdf_text_extractor::set_bundled_models_dir(models_dir);
+                }
+            }
+
             let state = app.state::<state::AppState>();
             let settings = state.ai_settings.lock().expect("ai_settings mutex poisoned").clone();
             if settings.http_api_enabled {

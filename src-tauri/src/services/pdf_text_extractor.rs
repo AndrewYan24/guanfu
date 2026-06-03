@@ -1,6 +1,15 @@
 use crate::errors::AppResult;
 use lopdf::Document;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+/// Bundled models directory, set at app startup. Checked before downloading.
+static BUNDLED_MODELS_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Set the bundled models directory (called once at app startup).
+pub fn set_bundled_models_dir(dir: PathBuf) {
+    let _ = BUNDLED_MODELS_DIR.set(dir);
+}
 
 /// Minimum number of meaningful characters to consider text extraction sufficient.
 const MIN_TEXT_LENGTH: usize = 100;
@@ -149,9 +158,21 @@ fn models_dir() -> AppResult<PathBuf> {
     Ok(dir)
 }
 
-/// Ensure OCR model files exist, downloading them if necessary.
-/// Tries multiple mirrors (ModelScope → HuggingFace) with retry logic.
+/// Ensure OCR model files exist.
+/// First checks bundled resources (packaged with the app), then falls back to download.
 async fn ensure_models() -> AppResult<PathBuf> {
+    // 1. Check bundled resources first
+    if let Some(bundled) = BUNDLED_MODELS_DIR.get() {
+        let all_exist = model_sources()
+            .iter()
+            .all(|(filename, _)| bundled.join(filename).exists());
+        if all_exist {
+            eprintln!("[ocr] 使用内置模型: {}", bundled.display());
+            return Ok(bundled.clone());
+        }
+    }
+
+    // 2. Fall back to download directory
     let dir = models_dir()?;
 
     // Check if all files exist

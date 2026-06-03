@@ -23,14 +23,6 @@ const targetId = ref('');
 const relationType = ref<RelationType>('supports');
 const evidence = ref('');
 const searchQuery = ref('');
-const recommendations = ref<Array<{
-  sourceId: string;
-  targetId: string;
-  type: RelationType;
-  confidence: number;
-  evidence: string;
-}>>([]);
-
 const isRecommending = computed(() =>
   graphStore.isPaperRecommending(props.paper.id)
 );
@@ -102,44 +94,32 @@ async function handleRecommendRelations() {
   if (!projectStore.projectPath || isRecommending.value) return;
   graphStore.setPaperRecommending(props.paper.id, true);
   try {
-    recommendations.value = await aiRecommendRelations(projectStore.projectPath);
+    const recs = await aiRecommendRelations(projectStore.projectPath);
+    // Filter out duplicates
+    const existing = graphStore.relations;
+    const newRecs = recs.filter(
+      (rec) => !existing.some(
+        (r) => r.sourceId === rec.sourceId && r.targetId === rec.targetId && r.type === rec.type
+      )
+    );
+    if (newRecs.length > 0) {
+      const now = new Date().toISOString();
+      const toAdd: Relation[] = newRecs.map((rec) => ({
+        id: crypto.randomUUID(),
+        sourceId: rec.sourceId,
+        targetId: rec.targetId,
+        type: rec.type,
+        evidence: rec.evidence,
+        isManual: false,
+        confidence: rec.confidence,
+        createdAt: now,
+        updatedAt: now,
+      }));
+      await graphStore.addRelationsBatch(toAdd);
+    }
   } finally {
     graphStore.setPaperRecommending(props.paper.id, false);
   }
-}
-
-async function handleApplyRecommendation(rec: typeof recommendations.value[0]) {
-  const now = new Date().toISOString();
-  const relation: Relation = {
-    id: crypto.randomUUID(),
-    sourceId: rec.sourceId,
-    targetId: rec.targetId,
-    type: rec.type,
-    evidence: rec.evidence,
-    isManual: false,
-    confidence: rec.confidence,
-    createdAt: now,
-    updatedAt: now,
-  };
-  await graphStore.addRelation(relation);
-  recommendations.value = recommendations.value.filter((r) => r !== rec);
-}
-
-async function handleApplyAll() {
-  const now = new Date().toISOString();
-  const toAdd: Relation[] = recommendations.value.map((rec) => ({
-    id: crypto.randomUUID(),
-    sourceId: rec.sourceId,
-    targetId: rec.targetId,
-    type: rec.type,
-    evidence: rec.evidence,
-    isManual: false,
-    confidence: rec.confidence,
-    createdAt: now,
-    updatedAt: now,
-  }));
-  await graphStore.addRelationsBatch(toAdd);
-  recommendations.value = [];
 }
 
 function selectTarget(id: string) {
@@ -214,35 +194,6 @@ function selectTarget(id: string) {
       >
         {{ t('common.save') }}
       </button>
-    </div>
-
-    <!-- AI recommendations -->
-    <div v-if="recommendations.length" class="recommendations">
-      <div class="section-label">
-        {{ t('graph.recommendedRelations') }}
-        <button v-if="recommendations.length > 1" class="apply-btn apply-all" @click="handleApplyAll">
-          {{ t('graph.applyAll') }}
-        </button>
-      </div>
-      <div
-        v-for="(rec, i) in recommendations"
-        :key="i"
-        class="recommendation"
-      >
-        <div class="rec-info">
-          <span class="rec-type">{{ t('relations.' + rec.type) }}</span>
-          <span class="rec-target">
-            → {{ getPaperTitle(rec.targetId) }}
-          </span>
-          <span class="rec-confidence">
-            {{ Math.round(rec.confidence * 100) }}%
-          </span>
-        </div>
-        <p class="rec-evidence">{{ rec.evidence }}</p>
-        <button class="apply-btn" @click="handleApplyRecommendation(rec)">
-          {{ t('graph.applyRelation') }}
-        </button>
-      </div>
     </div>
 
     <!-- Existing relations -->
@@ -443,81 +394,6 @@ function selectTarget(id: string) {
   &:disabled {
     opacity: 0.5;
     cursor: not-allowed;
-  }
-}
-
-.recommendations {
-  border: 1px solid $color-border;
-  border-radius: $radius-sm;
-  padding: $spacing-md;
-}
-
-.section-label {
-  font-size: 12px;
-  color: $color-text-disabled;
-  margin-bottom: $spacing-sm;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.apply-all {
-  font-weight: 500;
-  color: $color-text-primary;
-}
-
-.recommendation {
-  padding: $spacing-sm 0;
-  border-bottom: 1px solid $color-border;
-
-  &:last-child {
-    border-bottom: none;
-  }
-}
-
-.rec-info {
-  display: flex;
-  align-items: center;
-  gap: $spacing-sm;
-}
-
-.rec-type {
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.rec-target {
-  font-size: 12px;
-  color: $color-text-secondary;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-
-.rec-confidence {
-  font-size: 11px;
-  color: $color-text-disabled;
-}
-
-.rec-evidence {
-  font-size: 12px;
-  color: $color-text-secondary;
-  margin: $spacing-xs 0;
-  line-height: 1.5;
-}
-
-.apply-btn {
-  padding: 2px 8px;
-  border: 1px solid $color-border;
-  border-radius: $radius-sm;
-  background: $color-bg;
-  font-size: 11px;
-  cursor: pointer;
-  font-family: $font-family;
-
-  &:hover {
-    background: $color-panel;
   }
 }
 

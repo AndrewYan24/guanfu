@@ -121,7 +121,7 @@ fn preprocess_pdf(bytes: &[u8]) -> Vec<u8> {
             eprintln!(
                 "[pdf_text_extractor] 裁剪 PDF 尾部: {} → {} 字节",
                 result.len(),
-                result.len() - end
+                end
             );
             result.truncate(end);
         }
@@ -177,6 +177,7 @@ async fn ensure_models() -> AppResult<PathBuf> {
         if path.exists() {
             continue;
         }
+        eprintln!("[ocr] 下载模型: {}", filename);
 
         let mut last_err = String::new();
         let mut downloaded = false;
@@ -240,14 +241,19 @@ async fn download_file(client: &reqwest::Client, url: &str, path: &Path) -> AppR
 
 /// Extract text from a PDF using integrated PaddleOCR (no system dependencies).
 async fn extract_text_paddle_ocr(pdf_path: &Path) -> AppResult<String> {
+    let file_name = pdf_path.file_name().unwrap_or_default().to_string_lossy();
+
     // Step 1: Ensure models are downloaded
+    eprintln!("[ocr] {} 检查模型...", file_name);
     let models_dir = ensure_models().await?;
     let det_path = models_dir.join("ch_PP-OCRv5_mobile_det.onnx");
     let cls_path = models_dir.join("ch_ppocr_mobile_v2.0_cls_infer.onnx");
     let rec_path = models_dir.join("ch_PP-OCRv5_rec_mobile_infer.onnx");
     let dict_path = models_dir.join("ppocrv5_dict.txt");
+    eprintln!("[ocr] {} 模型就绪", file_name);
 
     // Step 2: Render PDF pages to images using pdf-render (pure Rust)
+    eprintln!("[ocr] {} 渲染 PDF 页面...", file_name);
     let pdf_bytes = std::fs::read(pdf_path)
         .map_err(|e| crate::errors::AppError::IoError(format!("无法读取 PDF: {}", e)))?;
 
@@ -272,8 +278,10 @@ async fn extract_text_paddle_ocr(pdf_path: &Path) -> AppResult<String> {
     if pixmaps.is_empty() {
         return Err(crate::errors::AppError::Unknown("PDF 没有可渲染的页面".to_string()));
     }
+    eprintln!("[ocr] {} 渲染完成, {} 页", file_name, pixmaps.len());
 
     // Step 3: Initialize PaddleOCR
+    eprintln!("[ocr] {} 加载 OCR 模型...", file_name);
     let mut ocr = paddle_ocr_rs::ocr_lite::OcrLite::new();
     ocr.init_models_with_dict(
         det_path.to_str().unwrap(),
@@ -283,11 +291,13 @@ async fn extract_text_paddle_ocr(pdf_path: &Path) -> AppResult<String> {
         2, // num_threads
     )
     .map_err(|e| crate::errors::AppError::Unknown(format!("OCR 模型加载失败: {}", e)))?;
+    eprintln!("[ocr] {} OCR 模型已加载", file_name);
 
     // Step 4: Run OCR on each rendered page
     let mut all_text = String::new();
 
-    for pixmap in &pixmaps {
+    for (i, pixmap) in pixmaps.iter().enumerate() {
+        eprintln!("[ocr] {} 识别第 {}/{} 页...", file_name, i + 1, pixmaps.len());
         // Convert Pixmap (premultiplied RGBA) to RGB image
         let width = pixmap.width() as u32;
         let height = pixmap.height() as u32;
@@ -309,6 +319,10 @@ async fn extract_text_paddle_ocr(pdf_path: &Path) -> AppResult<String> {
             false, // most_angle
         ) {
             Ok(result) => {
+                let page_chars: usize = result.text_blocks.iter()
+                    .map(|b| b.text.trim().len())
+                    .sum();
+                eprintln!("[ocr] {} 第 {} 页识别 {} 字符", file_name, i + 1, page_chars);
                 for block in &result.text_blocks {
                     if !block.text.trim().is_empty() {
                         all_text.push_str(block.text.trim());
@@ -317,8 +331,7 @@ async fn extract_text_paddle_ocr(pdf_path: &Path) -> AppResult<String> {
                 }
             }
             Err(e) => {
-                // Log but continue with other pages
-                eprintln!("OCR 页面识别失败: {}", e);
+                eprintln!("[ocr] {} 第 {} 页识别失败: {}", file_name, i + 1, e);
             }
         }
     }

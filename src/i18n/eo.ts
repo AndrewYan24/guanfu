@@ -185,7 +185,7 @@ export default {
     language: 'Lingvo',
     languageHint: 'La elektita lingvo influos la lingvon de AI-respondoj',
     about: 'Pri',
-    aboutText: 'Guanfu — Akademia Diskursa Mapilo v0.1.0',
+    aboutText: 'Guanfu — Akademia Diskursa Mapilo v0.5.0',
     project: 'Projekto',
     projectDir: 'Projekta konserva dosierujo',
     projectDirHint: 'Defaŭlta loko por novaj projektoj',

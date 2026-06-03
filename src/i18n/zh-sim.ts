@@ -185,7 +185,7 @@ export default {
     language: '语言',
     languageHint: '选择的语言将影响 AI 回复的语言',
     about: '关于',
-    aboutText: '观复 — 文献论争图谱工具 v0.1.0',
+    aboutText: '观复 — 文献论争图谱工具 v0.5.0',
     openSource: '开源项目',
     openSourceDesc: '观复依赖以下优秀的开源项目，点击可查看项目主页。',
     project: '项目',

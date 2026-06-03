@@ -185,7 +185,7 @@ export default {
     language: 'Language',
     languageHint: 'The selected language will affect AI response language',
     about: 'About',
-    aboutText: 'Guanfu — Academic Discourse Mapping Tool v0.1.0',
+    aboutText: 'Guanfu — Academic Discourse Mapping Tool v0.5.0',
     openSource: 'Open Source',
     openSourceDesc: 'Guanfu relies on the following excellent open source projects. Click to visit their homepages.',
     project: 'Project',

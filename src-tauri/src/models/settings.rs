@@ -14,6 +14,7 @@ pub struct AiProviderConfig {
 pub enum OcrMethod {
     Local,
     Mineru,
+    Agent,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

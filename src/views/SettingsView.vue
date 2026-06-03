@@ -474,6 +474,13 @@ function scrollTo(id: string) {
               <span class="ocr-hint">{{ t('settings.localOcrHint') }}</span>
             </div>
           </label>
+          <label class="ocr-option" :class="{ active: ocrMethod === 'agent' }">
+            <input type="radio" value="agent" v-model="ocrMethod" />
+            <div class="ocr-info">
+              <span class="ocr-name">{{ t('settings.agentOcr') }}</span>
+              <span class="ocr-hint">{{ t('settings.agentOcrHint') }}</span>
+            </div>
+          </label>
           <label class="ocr-option" :class="{ active: ocrMethod === 'mineru' }">
             <input type="radio" value="mineru" v-model="ocrMethod" />
             <div class="ocr-info">

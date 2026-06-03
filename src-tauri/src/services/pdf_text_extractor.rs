@@ -412,54 +412,247 @@ pub async fn extract_text_with_ocr_fallback(pdf_path: &Path) -> AppResult<String
     }
 }
 
-/// Call MinerU API to extract text from a PDF file.
+/// MinerU precision API — uses batch file upload endpoint.
+/// POST /api/v4/file-urls/batch → PUT upload → poll /api/v4/extract-results/batch/{batch_id}
 pub async fn extract_text_mineru(
     pdf_path: &Path,
     api_key: &str,
     api_base: &str,
 ) -> AppResult<String> {
+    let file_name = pdf_path.file_name().unwrap_or_default().to_string_lossy();
     let client = reqwest::Client::new();
-    let url = format!("{}/v1/extract", api_base.trim_end_matches('/'));
+    let base = api_base.trim_end_matches('/');
 
+    // Step 1: Request upload URLs
+    let batch_url = format!("{}/v4/file-urls/batch", base);
     let pdf_bytes = std::fs::read(pdf_path)
         .map_err(|e| crate::errors::AppError::IoError(format!("无法读取 PDF: {}", e)))?;
 
-    let part = reqwest::multipart::Part::bytes(pdf_bytes)
-        .file_name("paper.pdf")
-        .mime_str("application/pdf")
-        .map_err(|e| crate::errors::AppError::Unknown(format!("MIME 错误: {}", e)))?;
+    let body = serde_json::json!({
+        "files": [{ "name": format!("{}.pdf", uuid::Uuid::new_v4()) }],
+        "is_ocr": true,
+        "enable_formula": false,
+        "enable_table": true,
+        "language": "ch"
+    });
 
-    let form = reqwest::multipart::Form::new()
-        .part("file", part)
-        .text("ocr", "true");
-
-    let resp = client
-        .post(&url)
+    eprintln!("[mineru] {} 请求上传 URL...", file_name);
+    let resp = client.post(&batch_url)
         .header("Authorization", format!("Bearer {}", api_key))
-        .multipart(form)
-        .send()
-        .await
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send().await
         .map_err(|e| crate::errors::AppError::Unknown(format!("MinerU 请求失败: {}", e)))?;
 
     if !resp.status().is_success() {
         let status = resp.status();
         let err_text = resp.text().await.unwrap_or_default();
-        return Err(crate::errors::AppError::Unknown(format!(
-            "MinerU API 错误 {}: {}",
-            status, err_text
-        )));
+        return Err(crate::errors::AppError::Unknown(format!("MinerU API 错误 {}: {}", status, err_text)));
     }
 
-    let resp_json: serde_json::Value = resp
-        .json()
-        .await
+    let resp_json: serde_json::Value = resp.json().await
         .map_err(|e| crate::errors::AppError::Unknown(format!("解析 MinerU 响应失败: {}", e)))?;
 
-    let text = resp_json["text"]
-        .as_str()
-        .or_else(|| resp_json["content"].as_str())
-        .unwrap_or("")
-        .to_string();
+    let batch_id = resp_json["data"]["batch_id"].as_str()
+        .ok_or_else(|| crate::errors::AppError::Unknown("MinerU 响应缺少 batch_id".to_string()))?;
+    let upload_url = resp_json["data"]["file_urls"][0].as_str()
+        .ok_or_else(|| crate::errors::AppError::Unknown("MinerU 响应缺少上传 URL".to_string()))?;
 
-    Ok(text)
+    // Step 2: Upload PDF
+    eprintln!("[mineru] {} 上传文件...", file_name);
+    client.put(upload_url)
+        .body(pdf_bytes)
+        .send().await
+        .map_err(|e| crate::errors::AppError::Unknown(format!("MinerU 上传失败: {}", e)))?
+        .error_for_status()
+        .map_err(|e| crate::errors::AppError::Unknown(format!("MinerU 上传错误: {}", e)))?;
+
+    // Step 3: Poll batch results
+    let poll_url = format!("{}/v4/extract-results/batch/{}", base, batch_id);
+    eprintln!("[mineru] {} 等待解析...", file_name);
+    poll_mineru_batch(&client, api_key, &poll_url, &file_name).await
+}
+
+async fn poll_mineru_batch(
+    client: &reqwest::Client,
+    api_key: &str,
+    poll_url: &str,
+    file_name: &str,
+) -> AppResult<String> {
+    let poll_interval = std::time::Duration::from_secs(3);
+    let timeout = std::time::Duration::from_secs(300);
+    let start = std::time::Instant::now();
+
+    loop {
+        if start.elapsed() > timeout {
+            return Err(crate::errors::AppError::Unknown("MinerU 解析超时 (300s)".to_string()));
+        }
+
+        tokio::time::sleep(poll_interval).await;
+
+        let resp = client.get(poll_url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .send().await
+            .map_err(|e| crate::errors::AppError::Unknown(format!("MinerU 轮询失败: {}", e)))?;
+
+        if !resp.status().is_success() {
+            continue;
+        }
+
+        let json: serde_json::Value = resp.json().await
+            .map_err(|e| crate::errors::AppError::Unknown(format!("MinerU 响应解析失败: {}", e)))?;
+
+        let results = match json["data"]["extract_result"].as_array() {
+            Some(r) => r,
+            None => continue,
+        };
+
+        if let Some(first) = results.first() {
+            let state = first["state"].as_str().unwrap_or("");
+            match state {
+                "done" => {
+                    let zip_url = first["full_zip_url"].as_str()
+                        .ok_or_else(|| crate::errors::AppError::Unknown("MinerU 缺少 zip URL".to_string()))?;
+                    eprintln!("[mineru] {} 解析完成，下载结果...", file_name);
+                    return download_and_extract_zip(client, zip_url).await;
+                }
+                "failed" => {
+                    let err = first["err_msg"].as_str().unwrap_or("未知错误");
+                    return Err(crate::errors::AppError::Unknown(format!("MinerU 解析失败: {}", err)));
+                }
+                _ => {
+                    eprintln!("[mineru] {} 状态: {}", file_name, state);
+                }
+            }
+        }
+    }
+}
+
+async fn download_and_extract_zip(client: &reqwest::Client, zip_url: &str) -> AppResult<String> {
+    let resp = client.get(zip_url).send().await
+        .map_err(|e| crate::errors::AppError::Unknown(format!("下载 MinerU 结果失败: {}", e)))?;
+
+    if !resp.status().is_success() {
+        return Err(crate::errors::AppError::Unknown(format!("下载 MinerU 结果 HTTP {}", resp.status())));
+    }
+
+    let zip_bytes = resp.bytes().await
+        .map_err(|e| crate::errors::AppError::Unknown(format!("读取 MinerU 结果失败: {}", e)))?;
+
+    let reader = std::io::Cursor::new(zip_bytes);
+    let mut archive = zip::ZipArchive::new(reader)
+        .map_err(|e| crate::errors::AppError::Unknown(format!("解压 MinerU 结果失败: {}", e)))?;
+
+    // Look for full.md in the zip
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)
+            .map_err(|e| crate::errors::AppError::Unknown(format!("读取 zip 条目失败: {}", e)))?;
+        let name = file.name().to_string();
+        if name.ends_with("full.md") {
+            let mut content = String::new();
+            use std::io::Read;
+            file.read_to_string(&mut content)
+                .map_err(|e| crate::errors::AppError::Unknown(format!("读取 full.md 失败: {}", e)))?;
+            return Ok(content);
+        }
+    }
+
+    Err(crate::errors::AppError::Unknown("MinerU 结果中未找到 full.md".to_string()))
+}
+
+/// MinerU Agent lightweight API — no login required, IP rate-limited.
+/// POST /api/v1/agent/parse/file → PUT upload → poll /api/v1/agent/parse/{task_id}
+pub async fn extract_text_mineru_agent(pdf_path: &Path) -> AppResult<String> {
+    let file_name = pdf_path.file_name().unwrap_or_default().to_string_lossy();
+    let client = reqwest::Client::new();
+
+    // Step 1: Get signed upload URL
+    let file_name_owned = format!("{}.pdf", uuid::Uuid::new_v4());
+    let body = serde_json::json!({
+        "file_name": file_name_owned,
+        "is_ocr": true,
+        "language": "ch"
+    });
+
+    eprintln!("[agent] {} 请求上传 URL...", file_name);
+    let resp = client.post("https://mineru.net/api/v1/agent/parse/file")
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send().await
+        .map_err(|e| crate::errors::AppError::Unknown(format!("MinerU Agent 请求失败: {}", e)))?;
+
+    if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return Err(crate::errors::AppError::Unknown("MinerU 轻量解析请求过于频繁，请稍后重试".to_string()));
+    }
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let err_text = resp.text().await.unwrap_or_default();
+        return Err(crate::errors::AppError::Unknown(format!("MinerU Agent 错误 {}: {}", status, err_text)));
+    }
+
+    let resp_json: serde_json::Value = resp.json().await
+        .map_err(|e| crate::errors::AppError::Unknown(format!("解析 MinerU Agent 响应失败: {}", e)))?;
+
+    let task_id = resp_json["data"]["task_id"].as_str()
+        .ok_or_else(|| crate::errors::AppError::Unknown("MinerU Agent 响应缺少 task_id".to_string()))?;
+    let upload_url = resp_json["data"]["file_url"].as_str()
+        .ok_or_else(|| crate::errors::AppError::Unknown("MinerU Agent 响应缺少 file_url".to_string()))?;
+
+    // Step 2: Upload PDF
+    let pdf_bytes = std::fs::read(pdf_path)
+        .map_err(|e| crate::errors::AppError::IoError(format!("无法读取 PDF: {}", e)))?;
+
+    eprintln!("[agent] {} 上传文件...", file_name);
+    client.put(upload_url)
+        .body(pdf_bytes)
+        .send().await
+        .map_err(|e| crate::errors::AppError::Unknown(format!("MinerU Agent 上传失败: {}", e)))?
+        .error_for_status()
+        .map_err(|e| crate::errors::AppError::Unknown(format!("MinerU Agent 上传错误: {}", e)))?;
+
+    // Step 3: Poll for result
+    let poll_url = format!("https://mineru.net/api/v1/agent/parse/{}", task_id);
+    eprintln!("[agent] {} 等待解析...", file_name);
+    let poll_interval = std::time::Duration::from_secs(3);
+    let timeout = std::time::Duration::from_secs(300);
+    let start = std::time::Instant::now();
+
+    loop {
+        if start.elapsed() > timeout {
+            return Err(crate::errors::AppError::Unknown("MinerU Agent 解析超时 (300s)".to_string()));
+        }
+
+        tokio::time::sleep(poll_interval).await;
+
+        let resp = client.get(&poll_url).send().await
+            .map_err(|e| crate::errors::AppError::Unknown(format!("MinerU Agent 轮询失败: {}", e)))?;
+
+        if !resp.status().is_success() {
+            continue;
+        }
+
+        let json: serde_json::Value = resp.json().await
+            .map_err(|e| crate::errors::AppError::Unknown(format!("MinerU Agent 响应解析失败: {}", e)))?;
+
+        let state = json["data"]["state"].as_str().unwrap_or("");
+        match state {
+            "done" => {
+                let md_url = json["data"]["markdown_url"].as_str()
+                    .ok_or_else(|| crate::errors::AppError::Unknown("MinerU Agent 缺少 markdown_url".to_string()))?;
+                eprintln!("[agent] {} 解析完成，下载 Markdown...", file_name);
+                let md_resp = client.get(md_url).send().await
+                    .map_err(|e| crate::errors::AppError::Unknown(format!("下载 Markdown 失败: {}", e)))?;
+                let text = md_resp.text().await
+                    .map_err(|e| crate::errors::AppError::Unknown(format!("读取 Markdown 失败: {}", e)))?;
+                return Ok(text);
+            }
+            "failed" => {
+                let err = json["data"]["err_msg"].as_str().unwrap_or("未知错误");
+                return Err(crate::errors::AppError::Unknown(format!("MinerU Agent 解析失败: {}", err)));
+            }
+            _ => {
+                eprintln!("[agent] {} 状态: {}", file_name, state);
+            }
+        }
+    }
 }

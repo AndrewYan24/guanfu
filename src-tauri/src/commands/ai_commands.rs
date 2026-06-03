@@ -48,6 +48,11 @@ pub async fn ai_parse_pdf(
                     .unwrap_or_default()
             }
         }
+        crate::models::OcrMethod::Agent => {
+            pdf_text_extractor::extract_text_mineru_agent(&pdf_path)
+                .await
+                .unwrap_or_default()
+        }
     };
 
     // Fallback: if text extraction returned nothing, use abstract/title
@@ -147,9 +152,33 @@ pub async fn ai_parse_pdfs_batch(
         let s = settings.clone();
         handles.push(tokio::spawn(async move {
             let _permit = sem.acquire().await.expect("semaphore closed");
-            let text = pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
-                .await
-                .unwrap_or_default();
+            let text = match s.ocr_method {
+                crate::models::OcrMethod::Local => {
+                    pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
+                        .await
+                        .unwrap_or_default()
+                }
+                crate::models::OcrMethod::Mineru => {
+                    if let Some(ref mineru) = s.mineru {
+                        pdf_text_extractor::extract_text_mineru(
+                            &pdf_path,
+                            &mineru.api_key,
+                            &mineru.api_base,
+                        )
+                        .await
+                        .unwrap_or_default()
+                    } else {
+                        pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
+                            .await
+                            .unwrap_or_default()
+                    }
+                }
+                crate::models::OcrMethod::Agent => {
+                    pdf_text_extractor::extract_text_mineru_agent(&pdf_path)
+                        .await
+                        .unwrap_or_default()
+                }
+            };
             let text = if text.trim().is_empty() {
                 fallback_text
             } else {

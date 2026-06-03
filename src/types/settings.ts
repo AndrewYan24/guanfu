@@ -5,7 +5,7 @@ export interface AiProviderConfig {
   model: string;
 }
 
-export type OcrMethod = 'local' | 'mineru';
+export type OcrMethod = 'local' | 'mineru' | 'agent';
 
 export interface MineruConfig {
   apiKey: string;

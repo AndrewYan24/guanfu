@@ -342,9 +342,27 @@ async fn ai_parse_paper(
 
     let settings = state.ai_settings.lock().expect("ai_settings mutex poisoned").clone();
 
-    let text = pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
-        .await
-        .unwrap_or_default();
+    let text = match settings.ocr_method {
+        crate::models::OcrMethod::Local => {
+            pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
+                .await
+                .unwrap_or_default()
+        }
+        crate::models::OcrMethod::Mineru => {
+            if let Some(ref mineru) = settings.mineru {
+                pdf_text_extractor::extract_text_mineru(
+                    &pdf_path, &mineru.api_key, &mineru.api_base,
+                ).await.unwrap_or_default()
+            } else {
+                pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
+                    .await.unwrap_or_default()
+            }
+        }
+        crate::models::OcrMethod::Agent => {
+            pdf_text_extractor::extract_text_mineru_agent(&pdf_path)
+                .await.unwrap_or_default()
+        }
+    };
     let text = if text.trim().is_empty() {
         paper.abstract_text.clone().unwrap_or_else(|| format!("Title: {}", paper.title))
     } else {
@@ -565,9 +583,26 @@ async fn batch_ai_parse_handler(
         let s = settings.clone();
         handles.push(tokio::spawn(async move {
             let _permit = sem.acquire().await.expect("semaphore closed");
-            let text = pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
-                .await
-                .unwrap_or_default();
+            let text = match s.ocr_method {
+                crate::models::OcrMethod::Local => {
+                    pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
+                        .await.unwrap_or_default()
+                }
+                crate::models::OcrMethod::Mineru => {
+                    if let Some(ref mineru) = s.mineru {
+                        pdf_text_extractor::extract_text_mineru(
+                            &pdf_path, &mineru.api_key, &mineru.api_base,
+                        ).await.unwrap_or_default()
+                    } else {
+                        pdf_text_extractor::extract_text_with_ocr_fallback(&pdf_path)
+                            .await.unwrap_or_default()
+                    }
+                }
+                crate::models::OcrMethod::Agent => {
+                    pdf_text_extractor::extract_text_mineru_agent(&pdf_path)
+                        .await.unwrap_or_default()
+                }
+            };
             let text = if text.trim().is_empty() {
                 format!("Paper ID: {}", paper_id)
             } else {

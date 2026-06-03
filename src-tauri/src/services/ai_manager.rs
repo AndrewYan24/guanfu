@@ -17,7 +17,7 @@ pub fn truncate_str(s: &str, max_bytes: usize) -> &str {
 /// Generate language instruction based on user's UI locale setting.
 fn language_instruction(locale: Option<&str>) -> &str {
     match locale {
-        Some(l) if l.starts_with("zh") => "使用中文回答。",
+        Some(l) if l == "sim" || l == "tra" || l.starts_with("zh") => "使用中文回答。",
         Some("eo") => "Respondu en Esperanto.",
         _ => "Respond in English.",
     }

@@ -361,8 +361,19 @@ async fn extract_text_paddle_ocr(pdf_path: &Path, mode: OcrModelMode) -> AppResu
 
     // Step 1: Ensure models are available
     eprintln!("[ocr] {} 检查模型 ({:?})...", file_name, mode);
-    let (det_path, cls_path, rec_path, dict_path) = ensure_models(mode).await?;
-    eprintln!("[ocr] {} 模型就绪", file_name);
+    let (det_path, cls_path, rec_path, dict_path) = ensure_models(mode.clone()).await?;
+    eprintln!("[ocr] {} 模型就绪: det={} cls={} rec={} dict={}",
+        file_name,
+        det_path.display(), cls_path.display(), rec_path.display(), dict_path.display());
+    // Verify files exist
+    for (name, p) in [("det", &det_path), ("cls", &cls_path), ("rec", &rec_path), ("dict", &dict_path)] {
+        if !p.exists() {
+            eprintln!("[ocr] 错误: {} 模型文件不存在: {}", name, p.display());
+        } else {
+            let size = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+            eprintln!("[ocr] {} = {} ({} bytes)", name, p.display(), size);
+        }
+    }
 
     // Step 2: Render PDF pages to images using pdf-render (pure Rust)
     eprintln!("[ocr] {} 渲染 PDF 页面...", file_name);
@@ -462,6 +473,7 @@ async fn extract_text_paddle_ocr(pdf_path: &Path, mode: OcrModelMode) -> AppResu
 /// First tries lopdf extraction, then falls back to PaddleOCR if text is insufficient or lopdf fails.
 pub async fn extract_text_with_ocr_fallback(pdf_path: &Path, mode: OcrModelMode) -> AppResult<String> {
     let file_name = pdf_path.file_name().unwrap_or_default().to_string_lossy();
+    eprintln!("[pdf] {} 开始提取文本, OCR模式={:?}", file_name, mode);
     match extract_text(pdf_path) {
         Ok(text) if has_sufficient_text(&text) => Ok(text),
         Ok(text) => {

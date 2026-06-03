@@ -314,8 +314,11 @@ async fn download_with_retries(client: &reqwest::Client, sources: Vec<&str>, pat
 }
 
 async fn download_file(client: &reqwest::Client, url: &str, path: &Path) -> AppResult<()> {
+    use tokio::io::AsyncWriteExt;
+
     let resp = client
         .get(url)
+        .header("User-Agent", "guanfu/0.5.0")
         .send()
         .await
         .map_err(|e| crate::errors::AppError::Unknown(format!("网络请求失败: {}", e)))?;
@@ -327,13 +330,27 @@ async fn download_file(client: &reqwest::Client, url: &str, path: &Path) -> AppR
         )));
     }
 
-    let bytes = resp
-        .bytes()
+    // Stream to file instead of loading entire response into memory
+    let tmp_path = path.with_extension("downloading");
+    let mut file = tokio::fs::File::create(&tmp_path)
         .await
-        .map_err(|e| crate::errors::AppError::Unknown(format!("下载数据失败: {}", e)))?;
+        .map_err(|e| crate::errors::AppError::IoError(format!("创建临时文件失败: {}", e)))?;
 
-    std::fs::write(path, &bytes)
-        .map_err(|e| crate::errors::AppError::IoError(format!("写入文件失败: {}", e)))?;
+    let mut stream = resp.bytes_stream();
+    use futures_util::StreamExt;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| crate::errors::AppError::Unknown(format!("下载数据失败: {}", e)))?;
+        file.write_all(&chunk)
+            .await
+            .map_err(|e| crate::errors::AppError::IoError(format!("写入文件失败: {}", e)))?;
+    }
+    file.flush().await
+        .map_err(|e| crate::errors::AppError::IoError(format!("刷新文件失败: {}", e)))?;
+    drop(file);
+
+    // Atomic rename
+    std::fs::rename(&tmp_path, path)
+        .map_err(|e| crate::errors::AppError::IoError(format!("重命名文件失败: {}", e)))?;
 
     Ok(())
 }

@@ -73,16 +73,16 @@ pub async fn ai_parse_pdf(
     // Step 2: Send extracted text to AI (extracts title/authors/year/abstract + 8 structured fields)
     let metadata = ai_manager::parse_text(&text, &settings).await?;
 
-    // Step 3: Update paper's basic fields from AI result
+    // Step 3: Update paper's basic fields from AI result (skip placeholder values)
     let paper_idx = project.papers.iter().position(|p| p.id == paper_id)
         .ok_or_else(|| crate::errors::AppError::FileNotFound(paper_id.clone()))?;
     if let Some(ref title) = metadata.title {
-        if !title.is_empty() {
+        if !title.is_empty() && title != "未知标题" {
             project.papers[paper_idx].title = title.clone();
         }
     }
     if let Some(ref authors) = metadata.authors {
-        if !authors.is_empty() {
+        if !authors.is_empty() && authors != &["未知作者".to_string()] {
             project.papers[paper_idx].authors = authors.clone();
         }
     }
@@ -208,13 +208,13 @@ pub async fn ai_parse_pdfs_batch(
         if let Ok((paper_id, result)) = h.await {
             let (success, error_msg, metadata_json) = match result {
                 Ok(metadata) => {
-                    // Update project in-memory
+                    // Update project in-memory (skip placeholder values)
                     if let Some(paper) = project.papers.iter_mut().find(|p| p.id == paper_id) {
                         if let Some(ref title) = metadata.title {
-                            if !title.is_empty() { paper.title = title.clone(); }
+                            if !title.is_empty() && title != "未知标题" { paper.title = title.clone(); }
                         }
                         if let Some(ref authors) = metadata.authors {
-                            if !authors.is_empty() { paper.authors = authors.clone(); }
+                            if !authors.is_empty() && authors != &["未知作者".to_string()] { paper.authors = authors.clone(); }
                         }
                         if metadata.year.is_some() { paper.year = metadata.year; }
                         if let Some(ref abstract_text) = metadata.abstract_text {

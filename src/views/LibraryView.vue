@@ -647,7 +647,8 @@ watch(() => projectStore.hasProject, async (hasProject) => {
   font-family: $font-family;
   line-height: 1.7;
   resize: none;
-  overflow-y: auto;
+  overflow-y: scroll;
+  box-sizing: border-box;
   background: $color-bg;
   color: $color-text-primary;
   transition: border-color $transition-fast, background $transition-fast, color $transition-fast;

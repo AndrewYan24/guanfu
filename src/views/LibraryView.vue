@@ -647,8 +647,7 @@ watch(() => projectStore.hasProject, async (hasProject) => {
   font-family: $font-family;
   line-height: 1.7;
   resize: none;
-  overflow-y: scroll;
-  box-sizing: border-box;
+  overflow-y: auto;
   background: $color-bg;
   color: $color-text-primary;
   transition: border-color $transition-fast, background $transition-fast, color $transition-fast;
@@ -660,6 +659,21 @@ watch(() => projectStore.hasProject, async (hasProject) => {
 
   &::placeholder {
     color: $color-text-disabled;
+  }
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: $color-border;
+    border-radius: 3px;
+
+    &:hover {
+      background: $color-text-disabled;
+    }
   }
 }
 

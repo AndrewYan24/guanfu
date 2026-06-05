@@ -634,6 +634,21 @@ async function handleDeletePaper(id: string) {
   max-height: 80vh;
   overflow-y: auto;
   box-shadow: $shadow-md;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: $color-border;
+    border-radius: 3px;
+
+    &:hover {
+      background: $color-text-disabled;
+    }
+  }
 }
 
 .dialog-title {
@@ -680,7 +695,22 @@ async function handleDeletePaper(id: string) {
 
 .select-list {
   max-height: 120px;
-  overflow-y: scroll;
+  overflow-y: auto;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: $color-border;
+    border-radius: 3px;
+
+    &:hover {
+      background: $color-text-disabled;
+    }
+  }
 }
 
 .select-item {
@@ -767,6 +797,21 @@ async function handleDeletePaper(id: string) {
 
   &::placeholder {
     color: $color-text-disabled;
+  }
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: $color-border;
+    border-radius: 3px;
+
+    &:hover {
+      background: $color-text-disabled;
+    }
   }
 }
 

@@ -401,6 +401,12 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- Recommending relations banner -->
+    <div v-if="graphStore.isAutoRecommending" class="recommend-banner">
+      <span class="recommend-banner-spinner" />
+      <span>{{ t('library.recommendRelationsRunning') }}</span>
+    </div>
+
     <div v-if="papers.length === 0" class="empty-list">
       <p>{{ paperStore.searchQuery || paperStore.activeTag ? t('library.noResults') : t('library.dropPdfs') }}</p>
     </div>
@@ -408,7 +414,7 @@ onUnmounted(() => {
       v-for="paper in papers"
       :key="paper.id"
       class="paper-item"
-      :class="{ selected: paperStore.selectedPaperId === paper.id, 'multi-selected': selectedIds.has(paper.id), parsing: paperStore.isPaperParsing(paper.id), recommending: graphStore.isPaperRecommending(paper.id) }"
+      :class="{ selected: paperStore.selectedPaperId === paper.id, 'multi-selected': selectedIds.has(paper.id), parsing: paperStore.isPaperParsing(paper.id) }"
       @click="handlePaperClick($event, paper.id)"
       @contextmenu="handleContextMenu($event, paper.id)"
     >
@@ -416,7 +422,6 @@ onUnmounted(() => {
         <span class="paper-title">
           <span class="paper-title-text">{{ paper.title || t('common.empty') }}</span>
           <span v-if="paperStore.isPaperParsing(paper.id)" class="parse-spinner" />
-          <span v-else-if="graphStore.isPaperRecommending(paper.id)" class="parse-spinner" />
         </span>
         <span class="paper-meta">
           <template v-if="paperStore.isPaperParsing(paper.id)">
@@ -424,9 +429,6 @@ onUnmounted(() => {
           </template>
           <template v-else-if="paperStore.isPaperQueued(paper.id)">
             <span class="parsing-text">{{ t('metadata.queued') }}</span>
-          </template>
-          <template v-else-if="graphStore.isPaperRecommending(paper.id)">
-            <span class="parsing-text">{{ t('graph.recommendLoading') }}</span>
           </template>
           <template v-else>
             {{ paper.authors[0] || '—' }}
@@ -660,6 +662,27 @@ onUnmounted(() => {
   background: var(--hover-bg);
 }
 
+.recommend-banner {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-lg;
+  border-bottom: 1px solid $color-border;
+  background: var(--hover-bg);
+  font-size: 12px;
+  color: $color-text-secondary;
+}
+
+.recommend-banner-spinner {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid $color-border;
+  border-top-color: $color-text-secondary;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
 .parse-errors-header {
   display: flex;
   align-items: center;
@@ -799,10 +822,6 @@ onUnmounted(() => {
 }
 
 .parsing {
-  background: var(--hover-bg) !important;
-}
-
-.recommending {
   background: var(--hover-bg) !important;
 }
 

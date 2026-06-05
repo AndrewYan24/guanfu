@@ -1,12 +1,14 @@
 import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { ask } from '@tauri-apps/plugin-dialog';
 import type { Paper } from '@/types';
 import * as paperApi from '@/api/paperApi';
 import * as aiApi from '@/api/aiApi';
 import { useProjectStore } from './projectStore';
 import { useGraphStore } from './graphStore';
 import { useChatStore } from './chatStore';
+import i18n from '@/i18n';
 
 interface ParseProgressEvent {
   paperId: string;
@@ -158,7 +160,8 @@ export const usePaperStore = defineStore('paper', () => {
     parseErrors.value = [];
     parseProgress.value = { done: 0, total: newPapers.length };
 
-    // Safety timeout: force-clear progress if stuck beyond 200s
+    // Safety timeout: force-clear progress if stuck (dynamic: base + per-paper)
+    const safetyTimeoutMs = 120000 + newPapers.length * 60000;
     const safetyTimer = setTimeout(() => {
       if (isAutoResolving.value) {
         console.warn('[paperStore] Safety timeout: force-clearing resolve state');
@@ -167,7 +170,7 @@ export const usePaperStore = defineStore('paper', () => {
         parsingPaperIds.value.clear();
         parseProgress.value = null;
       }
-    }, 200000);
+    }, safetyTimeoutMs);
 
     // Read advanced settings
     const autoParse = settings.advanced?.autoParse ?? true;
@@ -215,10 +218,12 @@ export const usePaperStore = defineStore('paper', () => {
       if (autoParse) {
         // Batch parse — results are applied via parse_progress events as each completes
         const paperIds = newPapers.map(p => p.id);
+        // Dynamic timeout: 90s base + 60s per paper (accounts for text extraction + AI parse)
+        const timeoutMs = 90000 + paperIds.length * 60000;
         await Promise.race([
           aiApi.aiParsePdfsBatch(projectStore.projectPath, paperIds),
           new Promise<Record<string, any>>((_, reject) =>
-            setTimeout(() => reject(new Error('Parse timeout after 180s')), 180000)
+            setTimeout(() => reject(new Error(`Parse timeout after ${Math.round(timeoutMs / 1000)}s`)), timeoutMs)
           ),
         ]);
 
@@ -237,12 +242,21 @@ export const usePaperStore = defineStore('paper', () => {
       parsingPaperIds.value.clear();
       parseProgress.value = null;
 
-      // Recommend relations even if parsing partially failed — use all papers with metadata
-      const graphStore = useGraphStore();
-      await graphStore.autoRecommendRelations(
-        papers.value.length,
-        parsedIds.length > 0 ? parsedIds : undefined
-      );
+      // Ask user whether to recommend relations
+      if (parsedIds.length >= 2) {
+        const t = i18n.global.t;
+        const confirmed = await ask(
+          t('library.recommendRelationsConfirm'),
+          { title: t('library.recommendRelationsTitle'), kind: 'info' }
+        );
+        if (confirmed) {
+          const graphStore = useGraphStore();
+          await graphStore.autoRecommendRelations(
+            papers.value.length,
+            parsedIds.length > 0 ? parsedIds : undefined
+          );
+        }
+      }
     } catch (e) {
       console.error('[paperStore] resolveAndRecommendRelations failed:', e);
     } finally {

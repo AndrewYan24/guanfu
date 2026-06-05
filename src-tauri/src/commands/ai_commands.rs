@@ -205,45 +205,60 @@ pub async fn ai_parse_pdfs_batch(
     let mut done_count = 0usize;
     let mut failed_ids: Vec<String> = Vec::new();
     for h in handles {
-        if let Ok((paper_id, result)) = h.await {
-            let (success, error_msg, metadata_json) = match result {
-                Ok(metadata) => {
-                    // Update project in-memory (skip placeholder values)
-                    if let Some(paper) = project.papers.iter_mut().find(|p| p.id == paper_id) {
-                        if let Some(ref title) = metadata.title {
-                            if !title.is_empty() && title != "未知标题" { paper.title = title.clone(); }
-                        }
-                        if let Some(ref authors) = metadata.authors {
-                            if !authors.is_empty() && authors != &["未知作者".to_string()] { paper.authors = authors.clone(); }
-                        }
-                        if metadata.year.is_some() { paper.year = metadata.year; }
-                        if let Some(ref abstract_text) = metadata.abstract_text {
-                            if !abstract_text.is_empty() {
-                                paper.abstract_text = Some(abstract_text.clone());
+        match h.await {
+            Ok((paper_id, result)) => {
+                let (success, error_msg, metadata_json) = match result {
+                    Ok(metadata) => {
+                        // Update project in-memory (skip placeholder values)
+                        if let Some(paper) = project.papers.iter_mut().find(|p| p.id == paper_id) {
+                            if let Some(ref title) = metadata.title {
+                                if !title.is_empty() && title != "未知标题" { paper.title = title.clone(); }
                             }
+                            if let Some(ref authors) = metadata.authors {
+                                if !authors.is_empty() && authors != &["未知作者".to_string()] { paper.authors = authors.clone(); }
+                            }
+                            if metadata.year.is_some() { paper.year = metadata.year; }
+                            if let Some(ref abstract_text) = metadata.abstract_text {
+                                if !abstract_text.is_empty() {
+                                    paper.abstract_text = Some(abstract_text.clone());
+                                }
+                            }
+                            paper.updated_at = chrono::Utc::now().to_rfc3339();
                         }
-                        paper.updated_at = chrono::Utc::now().to_rfc3339();
+                        let json = serde_json::to_value(&metadata).ok();
+                        results.insert(paper_id.clone(), metadata);
+                        (true, None, json)
                     }
-                    let json = serde_json::to_value(&metadata).ok();
-                    results.insert(paper_id.clone(), metadata);
-                    (true, None, json)
-                }
-                Err(e) => {
-                    let msg = e.to_string();
-                    eprintln!("[ai_parse_pdfs_batch] paper {} failed: {}", paper_id, msg);
-                    failed_ids.push(paper_id.clone());
-                    (false, Some(msg), None)
-                }
-            };
-            done_count += 1;
-            let _ = app.emit("parse_progress", serde_json::json!({
-                "paperId": paper_id,
-                "success": success,
-                "error": error_msg,
-                "metadata": metadata_json,
-                "done": done_count,
-                "total": total,
-            }));
+                    Err(e) => {
+                        let msg = e.to_string();
+                        eprintln!("[ai_parse_pdfs_batch] paper {} failed: {}", paper_id, msg);
+                        failed_ids.push(paper_id.clone());
+                        (false, Some(msg), None)
+                    }
+                };
+                done_count += 1;
+                let _ = app.emit("parse_progress", serde_json::json!({
+                    "paperId": paper_id,
+                    "success": success,
+                    "error": error_msg,
+                    "metadata": metadata_json,
+                    "done": done_count,
+                    "total": total,
+                }));
+            }
+            Err(join_err) => {
+                // Task panicked — emit a failure event so frontend isn't stuck
+                done_count += 1;
+                eprintln!("[ai_parse_pdfs_batch] task panicked: {}", join_err);
+                let _ = app.emit("parse_progress", serde_json::json!({
+                    "paperId": "unknown",
+                    "success": false,
+                    "error": format!("Task panicked: {}", join_err),
+                    "metadata": null,
+                    "done": done_count,
+                    "total": total,
+                }));
+            }
         }
     }
 

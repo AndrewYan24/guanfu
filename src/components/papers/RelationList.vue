@@ -5,7 +5,6 @@ import { relationTypes } from '@/types/relation';
 import { useGraphStore } from '@/stores/graphStore';
 import { usePaperStore } from '@/stores/paperStore';
 import { useProjectStore } from '@/stores/projectStore';
-import { aiRecommendRelations } from '@/api/aiApi';
 import { useI18n } from 'vue-i18n';
 
 const { t } = useI18n();
@@ -23,12 +22,9 @@ const targetId = ref('');
 const relationType = ref<RelationType>('supports');
 const evidence = ref('');
 const searchQuery = ref('');
-const isRecommending = computed(() =>
-  graphStore.isPaperRecommending(props.paper.id)
-);
 
 const isAnalyzing = computed(() =>
-  graphStore.isAutoRecommending || paperStore.isAutoResolving || isRecommending.value
+  graphStore.isAutoRecommending || paperStore.isAutoResolving
 );
 
 const relatedRelations = computed(() =>
@@ -91,35 +87,8 @@ async function handleDeleteRelation(relationId: string) {
 }
 
 async function handleRecommendRelations() {
-  if (!projectStore.projectPath || isRecommending.value) return;
-  graphStore.setPaperRecommending(props.paper.id, true);
-  try {
-    const recs = await aiRecommendRelations(projectStore.projectPath);
-    // Filter out duplicates
-    const existing = graphStore.relations;
-    const newRecs = recs.filter(
-      (rec) => !existing.some(
-        (r) => r.sourceId === rec.sourceId && r.targetId === rec.targetId && r.type === rec.type
-      )
-    );
-    if (newRecs.length > 0) {
-      const now = new Date().toISOString();
-      const toAdd: Relation[] = newRecs.map((rec) => ({
-        id: crypto.randomUUID(),
-        sourceId: rec.sourceId,
-        targetId: rec.targetId,
-        type: rec.type,
-        evidence: rec.evidence,
-        isManual: false,
-        confidence: rec.confidence,
-        createdAt: now,
-        updatedAt: now,
-      }));
-      await graphStore.addRelationsBatch(toAdd);
-    }
-  } finally {
-    graphStore.setPaperRecommending(props.paper.id, false);
-  }
+  if (!projectStore.projectPath || graphStore.isAutoRecommending) return;
+  await graphStore.autoRecommendRelations(paperStore.papers.length);
 }
 
 function selectTarget(id: string) {
@@ -138,10 +107,10 @@ function selectTarget(id: string) {
         </button>
         <button
           class="action-btn"
-          :disabled="isRecommending"
+          :disabled="graphStore.isAutoRecommending"
           @click="handleRecommendRelations"
         >
-          {{ isRecommending ? t('graph.recommendLoading') : t('graph.recommendAgain') }}
+          {{ graphStore.isAutoRecommending ? t('library.recommendRelationsRunning') : t('graph.recommendAgain') }}
         </button>
       </div>
     </div>
@@ -316,6 +285,21 @@ function selectTarget(id: string) {
   max-height: 160px;
   resize: none;
   overflow-y: auto;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: $color-border;
+    border-radius: 3px;
+
+    &:hover {
+      background: $color-text-disabled;
+    }
+  }
 }
 
 .search-results {
